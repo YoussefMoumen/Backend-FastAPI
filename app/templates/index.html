@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>IA BIP/DPGF</title>
+</head>
+<body>
+    <h1>Uploader vos fichiers</h1>
+    <form action="/upload_bip" method="post" enctype="multipart/form-data">
+        <input type="file" name="file">
+        <input type="text" name="user_id" placeholder="user_id">
+        <button type="submit">Uploader BIP</button>
+    </form>
+    <br>
+    <form action="/upload_dpgf" method="post" enctype="multipart/form-data">
+        <input type="file" name="file">
+        <input type="text" name="user_id" placeholder="user_id">
+        <button type="submit">Uploader DPGF</button>
+    </form>
+</body>
+</html>
