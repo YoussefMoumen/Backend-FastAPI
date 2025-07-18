@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: bip-dpgf-api
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port 10000"
+    envVars:
+      - key: WEAVIATE_URL
+        value: $WEAVIATE_URL
+      - key: WEAVIATE_API_KEY
+        value: $WEAVIATE_API_KEY
