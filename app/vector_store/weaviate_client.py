@@ -27,7 +27,7 @@ def index_documents(user_id, docs):
         raise ValueError("docs must be a list of strings")
     vectors = model.encode(docs)
     bip_vectors[user_id] = [
-        {"text": doc, "vector": vector.tolist(), "pu": 100}
+        {"text": doc, "vector": vector.tolist()}
         for doc, vector in zip(docs, vectors)
     ]
 

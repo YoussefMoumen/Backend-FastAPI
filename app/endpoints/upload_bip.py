@@ -8,14 +8,22 @@ router = APIRouter()
 
 @router.post("/upload_bip")
 async def upload_bip(file: UploadFile = File(...), user_id: str = Form(...)):
-    if file.filename.endswith(".pdf"):
+    if file.filename.endswith((".pdf", ".PDF")):
         docs = extract_text_from_pdf(file.file)
-    elif file.filename.endswith(".xlsx"):
+    elif file.filename.endswith((".xlsx", ".xls", ".XLSX", ".XLS")):
         docs = extract_data_from_excel(file.file)
-    elif file.filename.endswith(".docx"):
+    elif file.filename.endswith((".docx", ".DOCX", ".doc", ".DOC")):
         docs = extract_text_from_word(file.file)
     else:
         return {"error": "Format non supporté"}
+
+    # Ensure docs is a list of strings
+    if isinstance(docs, dict):
+        docs = list(docs.values())
+    elif not isinstance(docs, list):
+        docs = [str(docs)]
+    else:
+        docs = [str(d) for d in docs]
 
     index_documents(user_id, docs)
     return {"message": f"{len(docs)} articles indexés pour l'utilisateur {user_id}"}
