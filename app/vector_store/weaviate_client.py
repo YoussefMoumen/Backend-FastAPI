@@ -22,8 +22,13 @@ bip_vectors = {}
 
 def index_documents(user_id, docs):
     model = get_model()
+    # Ensure docs is a list of strings
+    if not isinstance(docs, list):
+        raise ValueError("docs must be a list of strings")
+    vectors = model.encode(docs)
     bip_vectors[user_id] = [
-        {"text": doc, "vector": model.encode(doc).tolist(), "pu": 100} for doc in docs
+        {"text": doc, "vector": vector.tolist(), "pu": 100}
+        for doc, vector in zip(docs, vectors)
     ]
 
 def search_documents(user_id, query):
