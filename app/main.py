@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.endpoints import upload_bip, upload_dpgf, analyze, export
 import os
 import uvicorn
+import logging
 
 app = FastAPI()
 
@@ -24,5 +25,8 @@ def root():
     return {"message": "API IA BIP-DPGF est active"}
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 10000))  # Use Render's PORT or default to 10000
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    port = int(os.getenv("PORT", 10000))
+    logger.info(f"Starting server on host 0.0.0.0 and port {port}")
     uvicorn.run("app.main:app", host="0.0.0.0", port=port)
