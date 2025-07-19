@@ -2,7 +2,7 @@ import weaviate
 from sentence_transformers import SentenceTransformer
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
-client = weaviate.Client("vnnojers1slcuab06h2rg.c0.europe-west3.gcp.weaviate.cloud")
+client = weaviate.WeaviateClient("https://vnnojers1slcuab06h2rg.c0.europe-west3.gcp.weaviate.cloud")
 
 bip_vectors = {}
 
