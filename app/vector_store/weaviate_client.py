@@ -12,7 +12,7 @@ def get_model():
     return model
 
 # Initialize Weaviate client using environment variables
-client = weaviate.connect_to_wcs(
+client = weaviate.connect_to_weaviate_cloud(
     cluster_url=f"https://{os.getenv('WEAVIATE_URL')}",
     auth_credentials=weaviate.auth.AuthApiKey(os.getenv('WEAVIATE_API_KEY')),
     headers={"X-OpenAI-Api-Key": os.getenv('OPENAI_API_KEY', '')}  # Optional, add if needed
