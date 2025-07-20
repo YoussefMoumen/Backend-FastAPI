@@ -33,6 +33,10 @@ async def upload_bip(file: UploadFile = File(...), user_id: str = Form(...)):
             if not all(key in article for key in ["designation", "unit", "pu", "lot"]):
                 article.update({"unit": "", "pu": 0.0, "lot": ""})  # Default values if missing
 
+        if not articles or not isinstance(articles, list):
+            logger.error("No valid articles extracted from file.")
+            raise HTTPException(status_code=400, detail="Aucun article valide trouvé dans le fichier.")
+
         # Vectorize articles
         model = get_model()
         vectorized_articles = []
@@ -61,4 +65,4 @@ async def upload_bip(file: UploadFile = File(...), user_id: str = Form(...)):
         raise
     except Exception as e:
         logger.error(f"Error uploading BIP: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erreur lors du traitement du BIP: {str(e)}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
