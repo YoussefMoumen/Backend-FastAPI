@@ -37,6 +37,9 @@ async def upload_bip(file: UploadFile = File(...), user_id: str = Form(...)):
         model = get_model()
         vectorized_articles = []
         for article in articles:
+            if not isinstance(article, dict) or "designation" not in article:
+                logger.warning(f"Article missing 'designation': {article}")
+                continue
             designation_vector = model.encode(article["designation"]).tolist()
             vectorized_article = article.copy()
             vectorized_article["vector"] = designation_vector
