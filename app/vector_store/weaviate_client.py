@@ -26,13 +26,18 @@ def store_bip_articles(articles, user_id):
         client.collections.create(
             name="BipArticle",
             properties=[
-                {"name": "designation", "dataType": "text"},
-                {"name": "unit", "dataType": "text"},
-                {"name": "pu", "dataType": "number"},
-                {"name": "lot", "dataType": "text"},
-                {"name": "user_id", "dataType": "text"}
+                {"name": "designation", "data_type": ["text"]},
+                {"name": "unit", "data_type": ["text"]},
+                {"name": "pu", "data_type": ["number"]},
+                {"name": "lot", "data_type": ["text"]},
+                {"name": "user_id", "data_type": ["text"]}
             ],
-            vector_config={"vectorizer": "none"}  # Use precomputed vectors
+            vector_config=[
+                {
+                    "name": "default",
+                    "vectorizer": {"type": "none"}
+                }
+            ]
         )
 
     # Store articles with precomputed vectors
