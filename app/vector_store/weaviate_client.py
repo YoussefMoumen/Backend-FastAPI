@@ -35,21 +35,20 @@ def store_bip_articles(articles, user_id):
     vector_config=Configure.Vectors.self_provided()
 )
 
-    # Store articles with precomputed vectors
-    with client.batch.fixed_size(batch_size=100) as batch:
-        for article in articles:
-            properties = {
-                "designation": article.get("designation", ""),
-                "unit": article.get("unit", ""),
-                "pu": article.get("pu", 0.0),
-                "lot": article.get("lot", ""),
-                "user_id": user_id
-            }
-            batch.add_data_object(
-                data_object=properties,
-                collection_name="BipArticle",
-                vector=article["vector"]
-            )
+# Store articles with precomputed vectors
+    bip_collection = client.collections.get("BipArticle")
+    for article in articles:
+        properties = {
+            "designation": article.get("designation", ""),
+            "unit": article.get("unit", ""),
+            "pu": article.get("pu", 0.0),
+            "lot": article.get("lot", ""),
+            "user_id": user_id
+        }
+        bip_collection.data.insert(
+            properties,
+            vector=article["vector"]
+        )
 
 def search_documents(user_id, query):
     model = get_model()
