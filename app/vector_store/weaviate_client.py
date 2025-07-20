@@ -15,10 +15,8 @@ def get_model():
 client = weaviate.connect_to_weaviate_cloud(
     cluster_url=f"https://{os.getenv('WEAVIATE_URL')}",
     auth_credentials=weaviate.auth.AuthApiKey(os.getenv('WEAVIATE_API_KEY')),
-    headers={"X-OpenAI-Api-Key": os.getenv('OPENAI_API_KEY', '')}  # Optional, add if needed
+    headers={"X-OpenAI-Api-Key": os.getenv('OPENAI_API_KEY', '')}
 )
-
-bip_vectors = {}
 
 def store_bip_articles(articles, user_id):
     # Create schema if it doesn't exist
@@ -26,18 +24,13 @@ def store_bip_articles(articles, user_id):
         client.collections.create(
             name="BipArticle",
             properties=[
-                {"name": "designation", "data_type": ["text"]},
-                {"name": "unit", "data_type": ["text"]},
-                {"name": "pu", "data_type": ["number"]},
-                {"name": "lot", "data_type": ["text"]},
-                {"name": "user_id", "data_type": ["text"]}
+                {"name": "designation", "dataType": "text"},
+                {"name": "unit", "dataType": "text"},
+                {"name": "pu", "dataType": "number"},
+                {"name": "lot", "dataType": "text"},
+                {"name": "user_id", "dataType": "text"}
             ],
-            vector_config=[
-                {
-                    "name": "default",
-                    "vectorizer": {"type": "none"}
-                }
-            ]
+            vectorizer_config={"vectorizer": "none"}
         )
 
     # Store articles with precomputed vectors
@@ -46,8 +39,8 @@ def store_bip_articles(articles, user_id):
             properties = {
                 "designation": article["designation"],
                 "unit": article["unit"],
-                "pu": article["pu"] if article.get("pu") else 0.0,
-                "lot": article["lot"] if article.get("lot") else "",
+                "pu": article.get("pu", 0.0),
+                "lot": article.get("lot", ""),
                 "user_id": user_id
             }
             batch.add_data_object(
@@ -66,16 +59,6 @@ def search_documents(user_id, query):
     }).with_near_vector({
         "vector": query_vec
     }).with_limit(1).do()
+    
     hits = response["data"]["Get"]["BipArticle"]
     return hits[0] if hits else None
-    model = get_model()
-    query_vec = model.encode(query).tolist()
-    matches = bip_vectors.get(user_id, [])
-    if not matches:
-        return None
-
-    best_match = max(
-        matches,
-        key=lambda doc: -sum([(a - b) ** 2 for a, b in zip(query_vec, doc["vector"])]),
-    )
-    return best_match
