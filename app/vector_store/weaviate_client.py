@@ -30,7 +30,7 @@ def store_bip_articles(articles, user_id):
                 {"name": "lot", "dataType": "text"},
                 {"name": "user_id", "dataType": "text"}
             ],
-            vectorizer_config={"vectorizer": "none"}
+            vector_config={"vectorizer": "none"}
         )
 
     # Store articles with precomputed vectors
