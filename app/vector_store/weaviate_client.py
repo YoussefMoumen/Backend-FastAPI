@@ -1,6 +1,8 @@
 import os
 import weaviate
 from sentence_transformers import SentenceTransformer
+from weaviate.collections.classes.config import Property, DataType, VectorIndexConfig
+from weaviate.auth import AuthApiKey
 
 # Lazy load the model
 model = None
@@ -14,8 +16,8 @@ def get_model():
 # Initialize Weaviate client using environment variables
 client = weaviate.connect_to_weaviate_cloud(
     cluster_url=f"https://{os.getenv('WEAVIATE_URL')}",
-    auth_credentials=weaviate.auth.AuthApiKey(os.getenv('WEAVIATE_API_KEY')),
-    headers={"X-OpenAI-Api-Key": os.getenv('OPENAI_API_KEY', '')}
+    auth_credentials=AuthApiKey(os.getenv('WEAVIATE_API_KEY')),
+    headers={"X-OpenAI-Api-Key": os.getenv('OPENAI_API_KEY', '')}  # Optional
 )
 
 def store_bip_articles(articles, user_id):
@@ -24,28 +26,30 @@ def store_bip_articles(articles, user_id):
         client.collections.create(
             name="BipArticle",
             properties=[
-                {"name": "designation", "dataType": "text"},
-                {"name": "unit", "dataType": "text"},
-                {"name": "pu", "dataType": "number"},
-                {"name": "lot", "dataType": "text"},
-                {"name": "user_id", "dataType": "text"}
+                Property(name="designation", data_type=DataType.TEXT),
+                Property(name="unit", data_type=DataType.TEXT),
+                Property(name="pu", data_type=DataType.NUMBER),
+                Property(name="lot", data_type=DataType.TEXT),
+                Property(name="user_id", data_type=DataType.TEXT),
             ],
-            vector_config={"vectorizer": "none"}
+            vector_index_config=VectorIndexConfig(
+                vectorizer="none"
+            )
         )
 
     # Store articles with precomputed vectors
     with client.batch as batch:
         for article in articles:
             properties = {
-                "designation": article["designation"],
-                "unit": article["unit"],
+                "designation": article.get("designation", ""),
+                "unit": article.get("unit", ""),
                 "pu": article.get("pu", 0.0),
                 "lot": article.get("lot", ""),
                 "user_id": user_id
             }
             batch.add_data_object(
                 data_object=properties,
-                collection="BipArticle",
+                collection_name="BipArticle",
                 vector=article["vector"]
             )
 
@@ -59,6 +63,6 @@ def search_documents(user_id, query):
     }).with_near_vector({
         "vector": query_vec
     }).with_limit(1).do()
-    
-    hits = response["data"]["Get"]["BipArticle"]
+
+    hits = response["data"]["Get"].get("BipArticle", [])
     return hits[0] if hits else None
