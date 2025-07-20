@@ -1,7 +1,7 @@
 import os
 import weaviate
 from sentence_transformers import SentenceTransformer
-from weaviate.collections.classes.config import Property, DataType
+from weaviate.collections.classes.config import Property, DataType, Configure
 from weaviate.auth import AuthApiKey
 
 # Lazy load the model
@@ -32,10 +32,7 @@ def store_bip_articles(articles, user_id):
         Property(name="lot", data_type=DataType.TEXT),
         Property(name="user_id", data_type=DataType.TEXT),
     ],
-    vector_config={
-        "vectorizer": "none",
-        "vectorIndexConfig": {}  # requis avec vectorizer='none'
-    }
+    vector_config=Configure.Vector.self_provided()
 )
 
     # Store articles with precomputed vectors
