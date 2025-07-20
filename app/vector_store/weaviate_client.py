@@ -22,18 +22,18 @@ bip_vectors = {}
 
 def store_bip_articles(articles, user_id):
     # Create schema if it doesn't exist
-    if not client.schema.exists("BipArticle"):
-        client.schema.create_class({
-            "class": "BipArticle",
-            "properties": [
-                {"name": "designation", "dataType": ["text"]},
-                {"name": "unit", "dataType": ["text"]},
-                {"name": "pu", "dataType": ["number"]},
-                {"name": "lot", "dataType": ["text"]},
-                {"name": "user_id", "dataType": ["text"]}
+    if not client.collections.exists("BipArticle"):
+        client.collections.create(
+            name="BipArticle",
+            properties=[
+                {"name": "designation", "dataType": "text"},
+                {"name": "unit", "dataType": "text"},
+                {"name": "pu", "dataType": "number"},
+                {"name": "lot", "dataType": "text"},
+                {"name": "user_id", "dataType": "text"}
             ],
-            "vectorizer": "none"  # Use precomputed vectors
-        })
+            vectorizer_config={"vectorizer": "none"}  # Use precomputed vectors
+        )
 
     # Store articles with precomputed vectors
     with client.batch as batch:
@@ -47,7 +47,7 @@ def store_bip_articles(articles, user_id):
             }
             batch.add_data_object(
                 data_object=properties,
-                class_name="BipArticle",
+                collection="BipArticle",
                 vector=article["vector"]
             )
 
