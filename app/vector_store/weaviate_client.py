@@ -38,10 +38,16 @@ def store_bip_articles(articles, user_id):
 # Store articles with precomputed vectors
     bip_collection = client.collections.get("BipArticle")
     for article in articles:
+        pu_value = article.get("pu", 0.0)
+        try:
+            pu_value = float(pu_value)
+        except (ValueError, TypeError):
+            pu_value = 0.0
+
         properties = {
             "designation": article.get("designation", ""),
             "unit": article.get("unit", ""),
-            "pu": article.get("pu", 0.0),
+            "pu": pu_value,
             "lot": article.get("lot", ""),
             "user_id": user_id
         }
