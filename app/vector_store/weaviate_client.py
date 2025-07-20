@@ -23,19 +23,20 @@ client = weaviate.connect_to_weaviate_cloud(
 def store_bip_articles(articles, user_id):
     # Create schema if it doesn't exist
     if not client.collections.exists("BipArticle"):
-        client.collections.create(
-            name="BipArticle",
-            properties=[
-                Property(name="designation", data_type=DataType.TEXT),
-                Property(name="unit", data_type=DataType.TEXT),
-                Property(name="pu", data_type=DataType.NUMBER),
-                Property(name="lot", data_type=DataType.TEXT),
-                Property(name="user_id", data_type=DataType.TEXT),
-            ],
-            vector_index_config={  # ✅ dictionnaire brut
-                "vectorizer": "none"
-            }
-        )
+       client.collections.create(
+    name="BipArticle",
+    properties=[
+        Property(name="designation", data_type=DataType.TEXT),
+        Property(name="unit", data_type=DataType.TEXT),
+        Property(name="pu", data_type=DataType.NUMBER),
+        Property(name="lot", data_type=DataType.TEXT),
+        Property(name="user_id", data_type=DataType.TEXT),
+    ],
+    vector_config={
+        "vectorizer": "none",
+        "vectorIndexConfig": {}  # requis avec vectorizer='none'
+    }
+)
 
     # Store articles with precomputed vectors
     with client.batch as batch:
