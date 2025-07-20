@@ -36,7 +36,7 @@ def store_bip_articles(articles, user_id):
 )
 
     # Store articles with precomputed vectors
-    with client.batch as batch:
+    with client.batch.fixed_size(batch_size=100) as batch:
         for article in articles:
             properties = {
                 "designation": article.get("designation", ""),
