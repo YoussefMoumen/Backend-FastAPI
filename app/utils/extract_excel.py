@@ -51,12 +51,18 @@ def infer_field_mapping(headers, field_synonyms=FIELD_SYNONYMS):
     return mapping
 
 def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
+    # Inclure FIELD_SYNONYMS dans le prompt
+    synonyms_str = "\n".join([f"{field}: {', '.join(synonyms)}" for field, synonyms in FIELD_SYNONYMS.items()])
     # Forcer les noms de colonnes en minuscules dans le prompt pour consistance
     prompt = (
         "Voici une liste de colonnes extraites d'un tableau Excel :\n"
         f"{', '.join(str(col).lower() for col in column_names)}\n"
-        "Pour chaque colonne, indique à quel champ logique elle correspond parmi : designation, unit, pu, lot. "
-        "Si aucune correspondance n'est claire, utilise 'autre'. Réponds sous la forme d'un dictionnaire Python."
+        "Voici les synonymes définis pour mapper les colonnes aux champs logiques :\n"
+        f"{synonyms_str}\n"
+        "Utilise ces synonymes comme base principale pour mapper chaque colonne à un champ logique parmi : designation, unit, pu, lot. "
+        "Si une colonne correspond à un synonyme d'un champ, mappe-la à ce champ. "
+        "Si aucune correspondance claire n'est trouvée avec les synonymes, utilise ta propre connaissance pour mapper ou utilise 'autre'. "
+        "Réponds sous la forme d'un dictionnaire Python."
     )
     response = client.chat.completions.create(
         model="gpt-4",
@@ -73,21 +79,21 @@ def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
         return {}
 
 def find_header_row(df, field_synonyms=FIELD_SYNONYMS, max_rows=100):
-    # Vérifier la première ligne non vide comme en-tête par défaut
+    # Initialiser i à 0 et prioriser la ligne 0
     for i in range(min(max_rows, len(df))):
         row = df.iloc[i]
         norm_cells = [normalize(str(cell)) for cell in row.values if pd.notna(cell)]
-        if len(norm_cells) > 1:  # Au moins 2 colonnes non vides
+        if len(norm_cells) > 0:  # Au moins 1 colonne non vide
             matches_count = 0
             for field, synonyms in field_synonyms.items():
                 for syn in synonyms:
                     if any(normalize(syn) in cell for cell in norm_cells):
                         matches_count += 1
                         break
-            if matches_count >= 1 and i == 0:  # Priorité à la ligne 0 avec au moins 1 correspondance
+            if i == 0 and matches_count >= 1:  # Priorité absolue à la ligne 0 avec au moins 1 correspondance
                 logger.info(f"En-tête détecté à la ligne {i} avec {norm_cells}")
                 return i
-            elif matches_count >= 2:  # Sinon, exiger 2 correspondances pour les lignes suivantes
+            elif i > 0 and matches_count >= 2:  # Seulement pour les lignes suivantes, exiger 2 correspondances
                 logger.info(f"En-tête détecté à la ligne {i} avec {norm_cells}")
                 return i
     logger.warning(f"Aucun en-tête valide détecté dans les {max_rows} premières lignes, utilisation de la ligne 0.")
