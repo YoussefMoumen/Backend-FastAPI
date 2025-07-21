@@ -19,9 +19,6 @@ async def upload_bip(file: UploadFile = File(...), user_id: str = Form(...)):
     articles = []
     if file.filename.endswith((".xlsx", ".xls", ".XLSX", ".XLS")):
         articles = extract_data_from_excel(content)
-        if not articles or all(not any(a.values()) for a in articles):
-            # Fallback to GPT table extraction if standard extraction fails
-            articles = gpt_extract_table(content)
     elif file.filename.endswith((".pdf", ".PDF")):
         articles = extract_text_from_pdf(content)  # Adjust to return structured data
     elif file.filename.endswith((".docx", ".DOCX", ".doc", ".DOC")):

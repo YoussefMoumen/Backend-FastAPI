@@ -128,6 +128,8 @@ def extract_data_from_excel(file_bytes):
     try:
         mapping = gpt_map_columns(list(df.columns))
         logger.info(f"Mapping GPT : {mapping}")
+        if not mapping:
+            mapping = infer_field_mapping(list(df.columns))  # via synonymes
     except Exception as e:
         logger.error(f"Erreur GPT mapping : {e}")
         mapping = {}
@@ -151,34 +153,5 @@ def extract_data_from_excel(file_bytes):
         logger.info(f"Exemple de lignes extraites : {records[:3]}")
     else:
         logger.warning("Aucune donnée extraite du fichier Excel.")
-
-    return records
-
-def gpt_extract_table(file_bytes):
-    try:
-        table_as_text = pd.read_excel(io.BytesIO(file_bytes), header=None).to_csv(index=False, header=False, sep="\t")
-        logger.info(f"Table brute envoyée à GPT :\n{table_as_text[:500]}")
-    except Exception as e:
-        logger.error(f"Erreur lecture brute Excel pour GPT : {e}")
-        return []
-
-    prompt = (
-        "Voici le contenu d'un tableau Excel :\n"
-        f"{table_as_text}\n"
-        "Pour chaque ligne, indique à quel champ logique chaque colonne correspond parmi : designation, unit, pu, lot. "
-        "Retourne une liste de dictionnaires Python, chaque dictionnaire représentant une ligne structurée."
-    )
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0
-        )
-        import ast
-        records = ast.literal_eval(response.choices[0].message.content)
-        logger.info(f"Réponse GPT (extrait) : {str(records)[:500]}")
-    except Exception as e:
-        logger.error(f"Erreur GPT extraction table : {e}")
-        records = []
 
     return records
