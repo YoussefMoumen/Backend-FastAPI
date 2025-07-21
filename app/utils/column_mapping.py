@@ -18,7 +18,6 @@ def normalize(text):
 def auto_map_fields(articles):
     if not articles:
         return []
-    # Prend les clés du premier article comme référence
     keys = list(articles[0].keys())
     mapping = {}
     norm_keys = [normalize(k) for k in keys]
@@ -30,7 +29,6 @@ def auto_map_fields(articles):
                 found = keys[norm_keys.index(matches[0])]
                 break
         mapping[field] = found
-    # Remappe chaque article
     new_articles = []
     for art in articles:
         new_art = {f: art.get(mapping[f], "") for f in FIELD_SYNONYMS}

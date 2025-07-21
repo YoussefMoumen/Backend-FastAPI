@@ -6,7 +6,7 @@ from app.utils.extract_excel import extract_data_from_excel
 from app.utils.extract_word import extract_text_from_word
 from app.vector_store.weaviate_client import store_bip_articles, get_model
 from sentence_transformers import SentenceTransformer
-from app.utils.column_mapping import auto_map_fields  # À créer, voir ci-dessous
+from app.utils.column_mapping import auto_map_fields
 
 router = APIRouter()
 
