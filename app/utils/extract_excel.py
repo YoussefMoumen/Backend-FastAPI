@@ -17,7 +17,7 @@ EXPECTED_FIELDS = ["designation", "unit", "pu", "lot"]
 FIELD_SYNONYMS = {
     "designation": ["designation", "désignation", "article", "libellé", "description", "item"],
     "unit": ["unit", "unité", "u", "unite"],
-    "pu": ["pu", "prix unitaire", "prix", "unit price", "p.u."],
+    "pu": ["pu", "prix unitaire", "prix", "unit price", "p.u.", "cout", "coût"],
     "lot": ["lot", "section", "groupe", "group", "type", "catégorie"],
 }
 
@@ -51,7 +51,7 @@ def infer_field_mapping(headers, field_synonyms=FIELD_SYNONYMS):
 
 def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
     prompt = (
-        "Voici une liste de colonnes extraites d'un tableau Excel (basée sur les 15 premières lignes) :\n"
+        "Voici une liste de colonnes extraites d'un tableau Excel :\n"
         f"{', '.join(column_names)}\n"
         "Pour chaque colonne, indique à quel champ logique elle correspond parmi : designation, unit, pu, lot. "
         "Si aucune correspondance n'est claire, utilise 'autre'. Réponds sous la forme d'un dictionnaire Python."
@@ -69,16 +69,17 @@ def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
         logger.error(f"Erreur parsing GPT response: {e}")
         return {}
 
-def find_header_row(df, field_synonyms=FIELD_SYNONYMS, max_rows=15):
+def find_header_row(df, field_synonyms=FIELD_SYNONYMS, max_rows=50):
     for i in range(min(max_rows, len(df))):
         row = df.iloc[i]
-        norm_cells = [normalize(str(cell)) for cell in row.values]
-        for field, synonyms in field_synonyms.items():
-            for syn in synonyms:
-                if any(normalize(syn) in cell for cell in norm_cells):
-                    logger.info(f"En-tête détecté à la ligne {i} avec {norm_cells}")
-                    return i
-    logger.warning("Aucun en-tête détecté dans les 15 premières lignes, utilisation de la ligne 0.")
+        norm_cells = [normalize(str(cell)) for cell in row.values if pd.notna(cell)]
+        if len(norm_cells) > 1:  # Vérifie qu'il y a plusieurs colonnes non vides
+            for field, synonyms in field_synonyms.items():
+                for syn in synonyms:
+                    if any(normalize(syn) in cell for cell in norm_cells):
+                        logger.info(f"En-tête détecté à la ligne {i} avec {norm_cells}")
+                        return i
+    logger.warning(f"Aucun en-tête détecté dans les {max_rows} premières lignes, utilisation de la ligne 0.")
     return 0  # fallback: first row
 
 def extract_data_from_excel(file_bytes):
