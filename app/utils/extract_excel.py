@@ -15,10 +15,10 @@ client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 EXPECTED_FIELDS = ["designation", "unit", "pu", "lot"]
 
 FIELD_SYNONYMS = {
-    "designation": ["designation", "désignation", "article", "libellé", "description", "item"],
-    "unit": ["unit", "unité", "u", "unite"],
+    "designation": ["designation", "désignation", "article", "libellé", "description", "item", "ouvrage"],
+    "unit": ["unit", "unité", "u", "unite", "m²"],
     "pu": ["pu", "prix unitaire", "prix", "unit price", "p.u.", "cout", "coût", "prix ht", "montant"],
-    "lot": ["lot", "section", "groupe", "group", "type", "catégorie", "phase"],
+    "lot": ["lot", "section", "groupe", "group", "type", "catégorie", "phase", "gros œuvre"],
 }
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -52,7 +52,7 @@ def infer_field_mapping(headers, field_synonyms=FIELD_SYNONYMS):
 def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
     prompt = (
         "Voici une liste de colonnes extraites d'un tableau Excel :\n"
-        f"{', '.join(column_names)}\n"
+        f"{', '.join(str(col) for col in column_names)}\n"  # Convertir tous les éléments en chaînes
         "Pour chaque colonne, indique à quel champ logique elle correspond parmi : designation, unit, pu, lot. "
         "Si aucune correspondance n'est claire, utilise 'autre'. Réponds sous la forme d'un dictionnaire Python."
     )
@@ -69,11 +69,11 @@ def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
         logger.error(f"Erreur parsing GPT response: {e}")
         return {}
 
-def find_header_row(df, field_synonyms=FIELD_SYNONYMS, max_rows=30):
+def find_header_row(df, field_synonyms=FIELD_SYNONYMS, max_rows=100):
     matches_count = 0
     for i in range(min(max_rows, len(df))):
         row = df.iloc[i]
-        norm_cells = [normalize(str(cell)) for cell in row.values if pd.notna(cell)]
+        norm_cells = [normalize(str(cell)) for cell in row.values if pd.notna(cell)]  # Forcer conversion en chaîne
         if len(norm_cells) > 2:  # Exige au moins 3 colonnes non vides
             match_found = False
             for field, synonyms in field_synonyms.items():
@@ -108,6 +108,8 @@ def extract_data_from_excel(file_bytes):
 
     try:
         df = pd.read_excel(io.BytesIO(file_bytes), header=header_row_idx)
+        # Convertir tous les en-têtes en chaînes pour éviter les erreurs
+        df.columns = [str(col) for col in df.columns]
         logger.info(f"Colonnes détectées : {list(df.columns)}")
     except Exception as e:
         logger.error(f"Erreur lecture Excel avec header : {e}")
