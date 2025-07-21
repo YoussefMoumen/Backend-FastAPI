@@ -4,7 +4,7 @@ import logging
 from app.utils.extract_pdf import extract_text_from_pdf
 from app.utils.extract_excel import extract_data_from_excel, gpt_extract_table
 from app.utils.extract_word import extract_text_from_word
-from app.vector_store.weaviate_client import store_bip_articles, get_model
+from app.vector_store.weaviate_client import store_bip_articles, get_model, delete_bip_articles
 from sentence_transformers import SentenceTransformer
 from app.utils.column_mapping import auto_map_fields
 
@@ -65,3 +65,8 @@ async def upload_bip(file: UploadFile = File(...), user_id: str = Form(...)):
         "articles": articles,  # Original articles
         "vectorized_articles": vectorized_articles  # Articles with vectors
     })
+
+@router.delete("/delete_bip")
+async def delete_bip(user_id: str):
+    delete_bip_articles(user_id)
+    return {"message": f"Articles BIP supprimés pour l'utilisateur {user_id}"}

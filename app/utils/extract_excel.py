@@ -6,6 +6,7 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 import openai
 import os
+import logging
 
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -20,6 +21,9 @@ FIELD_SYNONYMS = {
 }
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
+
+logger = logging.getLogger("extract_excel")
+logger.setLevel(logging.INFO)
 
 def normalize(text):
     text = str(text).strip().lower()
@@ -99,38 +103,82 @@ def find_header_row(df, field_synonyms=FIELD_SYNONYMS):
     return 0  # fallback: first row
 
 def extract_data_from_excel(file_bytes):
-    df_raw = pd.read_excel(io.BytesIO(file_bytes), header=None)
-    header_row_idx = find_header_row(df_raw)
-    print(f"Detected header row: {header_row_idx}")
-    df = pd.read_excel(io.BytesIO(file_bytes), header=header_row_idx)
-    print(f"Columns detected: {list(df.columns)}")
-    mapping = gpt_map_columns(list(df.columns))
-    print(f"GPT mapping: {mapping}")
+    try:
+        logger.info("Lecture brute du fichier Excel sans header...")
+        df_raw = pd.read_excel(io.BytesIO(file_bytes), header=None)
+        logger.info(f"Premières lignes brutes :\n{df_raw.head(5)}")
+    except Exception as e:
+        logger.error(f"Erreur lecture brute Excel : {e}")
+        return []
+
+    try:
+        header_row_idx = find_header_row(df_raw)
+        logger.info(f"Ligne d'entête détectée : {header_row_idx}")
+    except Exception as e:
+        logger.error(f"Erreur détection header : {e}")
+        return []
+
+    try:
+        df = pd.read_excel(io.BytesIO(file_bytes), header=header_row_idx)
+        logger.info(f"Colonnes détectées : {list(df.columns)}")
+    except Exception as e:
+        logger.error(f"Erreur lecture Excel avec header : {e}")
+        return []
+
+    try:
+        mapping = gpt_map_columns(list(df.columns))
+        logger.info(f"Mapping GPT : {mapping}")
+    except Exception as e:
+        logger.error(f"Erreur GPT mapping : {e}")
+        mapping = {}
+
     reverse_map = {v: k for k, v in mapping.items() if v in ["designation", "unit", "pu", "lot"]}
+    logger.info(f"Reverse map utilisé : {reverse_map}")
+
     records = []
-    for _, row in df.iterrows():
+    for idx, row in df.iterrows():
         record = {}
         for field in ["designation", "unit", "pu", "lot"]:
             col = reverse_map.get(field)
             record[field] = row[col] if col and col in row and pd.notna(row[col]) else ""
-        records.append(record)
-    records = [r for r in records if any(r.values())]
-    print(f"Extracted records: {records[:3]}")  # Show first 3 for debug
+        if any(record.values()):
+            records.append(record)
+        else:
+            logger.warning(f"Ligne vide ou non reconnue à l'index {idx}: {row}")
+
+    logger.info(f"Nombre de lignes extraites : {len(records)}")
+    if records:
+        logger.info(f"Exemple de lignes extraites : {records[:3]}")
+    else:
+        logger.warning("Aucune donnée extraite du fichier Excel.")
+
     return records
 
 def gpt_extract_table(file_bytes):
-    table_as_text = pd.read_excel(io.BytesIO(file_bytes), header=None).to_csv(index=False, header=False, sep="\t")
+    try:
+        table_as_text = pd.read_excel(io.BytesIO(file_bytes), header=None).to_csv(index=False, header=False, sep="\t")
+        logger.info(f"Table brute envoyée à GPT :\n{table_as_text[:500]}")
+    except Exception as e:
+        logger.error(f"Erreur lecture brute Excel pour GPT : {e}")
+        return []
+
     prompt = (
         "Voici le contenu d'un tableau Excel :\n"
         f"{table_as_text}\n"
         "Pour chaque ligne, indique à quel champ logique chaque colonne correspond parmi : designation, unit, pu, lot. "
         "Retourne une liste de dictionnaires Python, chaque dictionnaire représentant une ligne structurée."
     )
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0
-    )
-    import ast
-    records = ast.literal_eval(response.choices[0].message.content)
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0
+        )
+        import ast
+        records = ast.literal_eval(response.choices[0].message.content)
+        logger.info(f"Réponse GPT (extrait) : {str(records)[:500]}")
+    except Exception as e:
+        logger.error(f"Erreur GPT extraction table : {e}")
+        records = []
+
     return records

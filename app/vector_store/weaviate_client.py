@@ -69,3 +69,13 @@ def search_documents(user_id, query):
 
     hits = response["data"]["Get"].get("BipArticle", [])
     return hits[0] if hits else None
+
+def delete_bip_articles(user_id):
+    # Supprime tous les objets BipArticle pour ce user_id
+    client.collections.get("BipArticle").data.delete_many(
+        where={
+            "path": ["user_id"],
+            "operator": "Equal",
+            "valueText": user_id
+        }
+    )
