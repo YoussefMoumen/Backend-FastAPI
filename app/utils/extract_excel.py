@@ -5,6 +5,9 @@ import unicodedata
 from sentence_transformers import SentenceTransformer
 import numpy as np
 import openai
+import os
+
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Define the expected fields
 EXPECTED_FIELDS = ["designation", "unit", "pu", "lot"]
@@ -74,21 +77,19 @@ def gpt_map_columns(column_names):
         "Pour chaque colonne, indique à quel champ logique elle correspond parmi : designation, unit, pu, lot. "
         "Réponds sous la forme d'un dictionnaire Python où la clé est le nom de colonne et la valeur est le champ logique ou 'autre'."
     )
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4",
         messages=[{"role": "user", "content": prompt}],
         temperature=0
     )
     import ast
-    mapping = ast.literal_eval(response['choices'][0]['message']['content'])
+    mapping = ast.literal_eval(response.choices[0].message.content)
     return mapping
 
 def extract_data_from_excel(file_bytes):
     df = pd.read_excel(io.BytesIO(file_bytes))
     columns = list(df.columns)
-    # Utilise GPT pour mapper les colonnes
     mapping = gpt_map_columns(columns)
-    # Inverse le mapping pour retrouver la colonne pour chaque champ logique
     reverse_map = {v: k for k, v in mapping.items() if v in ["designation", "unit", "pu", "lot"]}
     records = []
     for _, row in df.iterrows():
