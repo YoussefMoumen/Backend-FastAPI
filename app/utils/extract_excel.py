@@ -99,13 +99,13 @@ def find_header_row(df, field_synonyms=FIELD_SYNONYMS):
     return 0  # fallback: first row
 
 def extract_data_from_excel(file_bytes):
-    # Read without header
     df_raw = pd.read_excel(io.BytesIO(file_bytes), header=None)
     header_row_idx = find_header_row(df_raw)
-    # Read again with correct header
+    print(f"Detected header row: {header_row_idx}")
     df = pd.read_excel(io.BytesIO(file_bytes), header=header_row_idx)
-    columns = list(df.columns)
-    mapping = gpt_map_columns(columns)
+    print(f"Columns detected: {list(df.columns)}")
+    mapping = gpt_map_columns(list(df.columns))
+    print(f"GPT mapping: {mapping}")
     reverse_map = {v: k for k, v in mapping.items() if v in ["designation", "unit", "pu", "lot"]}
     records = []
     for _, row in df.iterrows():
@@ -114,4 +114,6 @@ def extract_data_from_excel(file_bytes):
             col = reverse_map.get(field)
             record[field] = row[col] if col and col in row and pd.notna(row[col]) else ""
         records.append(record)
+    records = [r for r in records if any(r.values())]
+    print(f"Extracted records: {records[:3]}")  # Show first 3 for debug
     return records
