@@ -17,8 +17,8 @@ EXPECTED_FIELDS = ["designation", "unit", "pu", "lot"]
 FIELD_SYNONYMS = {
     "designation": ["designation", "désignation", "article", "libellé", "description", "item"],
     "unit": ["unit", "unité", "u", "unite"],
-    "pu": ["pu", "prix unitaire", "prix", "unit price", "p.u.", "cout", "coût"],
-    "lot": ["lot", "section", "groupe", "group", "type", "catégorie"],
+    "pu": ["pu", "prix unitaire", "prix", "unit price", "p.u.", "cout", "coût", "prix ht", "montant"],
+    "lot": ["lot", "section", "groupe", "group", "type", "catégorie", "phase"],
 }
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -69,17 +69,25 @@ def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
         logger.error(f"Erreur parsing GPT response: {e}")
         return {}
 
-def find_header_row(df, field_synonyms=FIELD_SYNONYMS, max_rows=50):
+def find_header_row(df, field_synonyms=FIELD_SYNONYMS, max_rows=30):
+    matches_count = 0
     for i in range(min(max_rows, len(df))):
         row = df.iloc[i]
         norm_cells = [normalize(str(cell)) for cell in row.values if pd.notna(cell)]
-        if len(norm_cells) > 1:  # Vérifie qu'il y a plusieurs colonnes non vides
+        if len(norm_cells) > 2:  # Exige au moins 3 colonnes non vides
+            match_found = False
             for field, synonyms in field_synonyms.items():
                 for syn in synonyms:
                     if any(normalize(syn) in cell for cell in norm_cells):
-                        logger.info(f"En-tête détecté à la ligne {i} avec {norm_cells}")
-                        return i
-    logger.warning(f"Aucun en-tête détecté dans les {max_rows} premières lignes, utilisation de la ligne 0.")
+                        matches_count += 1
+                        match_found = True
+                        break
+                if match_found:
+                    break
+            if matches_count >= 2:  # Exige au moins 2 correspondances
+                logger.info(f"En-tête détecté à la ligne {i} avec {norm_cells}")
+                return i
+    logger.warning(f"Aucun en-tête valide détecté dans les {max_rows} premières lignes, utilisation de la ligne 0.")
     return 0  # fallback: first row
 
 def extract_data_from_excel(file_bytes):
