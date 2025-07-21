@@ -7,6 +7,7 @@ import numpy as np
 import openai
 import os
 import logging
+from typing import List, Dict
 
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -48,58 +49,36 @@ def infer_field_mapping(headers, field_synonyms=FIELD_SYNONYMS):
         mapping[field] = found
     return mapping
 
-def semantic_column_mapping(headers):
-    mapping = {}
-    header_vecs = {h: vectorize(h) for h in headers}
-    for h, h_vec in header_vecs.items():
-        best_field = None
-        best_score = -1
-        for field, synonyms in FIELD_SYNONYMS.items():
-            for syn in synonyms:
-                syn_vec = vectorize(syn)
-                score = np.dot(h_vec, syn_vec) / (np.linalg.norm(h_vec) * np.linalg.norm(syn_vec))
-                if score > best_score:
-                    best_score = score
-                    best_field = field
-        mapping[h] = best_field if best_score > 0.7 else None  # seuil ajustable
-    return mapping
-
-def infer_column_mapping(columns):
-    mapping = {}
-    for field in EXPECTED_FIELDS:
-        match = difflib.get_close_matches(field, columns, n=1, cutoff=0.6)
-        if match:
-            mapping[field] = match[0]
-        else:
-            mapping[field] = None
-    return mapping
-
-def gpt_map_columns(column_names):
+def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
     prompt = (
-        "Voici une liste de colonnes extraites d'un tableau Excel :\n"
+        "Voici une liste de colonnes extraites d'un tableau Excel (basée sur les 15 premières lignes) :\n"
         f"{', '.join(column_names)}\n"
         "Pour chaque colonne, indique à quel champ logique elle correspond parmi : designation, unit, pu, lot. "
-        "Réponds sous la forme d'un dictionnaire Python où la clé est le nom de colonne et la valeur est le champ logique ou 'autre'."
+        "Si aucune correspondance n'est claire, utilise 'autre'. Réponds sous la forme d'un dictionnaire Python."
     )
     response = client.chat.completions.create(
         model="gpt-4",
         messages=[{"role": "user", "content": prompt}],
         temperature=0
     )
-    import ast
-    mapping = ast.literal_eval(response.choices[0].message.content)
-    return mapping
+    try:
+        import ast
+        mapping = ast.literal_eval(response.choices[0].message.content)
+        return {k: v for k, v in mapping.items() if v in EXPECTED_FIELDS or v == "autre"}
+    except (ValueError, SyntaxError) as e:
+        logger.error(f"Erreur parsing GPT response: {e}")
+        return {}
 
-def find_header_row(df, field_synonyms=FIELD_SYNONYMS):
-    for i in range(min(30, len(df))):  # Scan first 30 rows
+def find_header_row(df, field_synonyms=FIELD_SYNONYMS, max_rows=15):
+    for i in range(min(max_rows, len(df))):
         row = df.iloc[i]
-        # Normalize all cell values
         norm_cells = [normalize(str(cell)) for cell in row.values]
-        # Try fuzzy/semantic mapping
         for field, synonyms in field_synonyms.items():
             for syn in synonyms:
                 if any(normalize(syn) in cell for cell in norm_cells):
+                    logger.info(f"En-tête détecté à la ligne {i} avec {norm_cells}")
                     return i
+    logger.warning("Aucun en-tête détecté dans les 15 premières lignes, utilisation de la ligne 0.")
     return 0  # fallback: first row
 
 def extract_data_from_excel(file_bytes):
@@ -126,23 +105,32 @@ def extract_data_from_excel(file_bytes):
         return []
 
     try:
-        mapping = gpt_map_columns(list(df.columns))
-        logger.info(f"Mapping GPT : {mapping}")
+        mapping = infer_field_mapping(list(df.columns))
+        logger.info(f"infer_field_mapping : {mapping}")
+        if not any(value in EXPECTED_FIELDS for value in mapping.values()):
+            mapping = gpt_map_columns(list(df.columns))
+        logger.info(f"Mapping final : {mapping}")
         if not mapping:
-            mapping = infer_field_mapping(list(df.columns))  # via synonymes
+            logger.error("Aucun mappage valide trouvé, extraction impossible.")
+            return []
     except Exception as e:
-        logger.error(f"Erreur GPT mapping : {e}")
-        mapping = {}
+        logger.error(f"Erreur mapping : {e}")
+        return []
 
-    reverse_map = {v: k for k, v in mapping.items() if v in ["designation", "unit", "pu", "lot"]}
+    reverse_map = {v: k for k, v in mapping.items() if v in EXPECTED_FIELDS}
     logger.info(f"Reverse map utilisé : {reverse_map}")
+
+    if not reverse_map:
+        logger.error("Aucun champ attendu mappé, vérifiez les en-têtes ou les synonymes.")
+        return []
 
     records = []
     for idx, row in df.iterrows():
         record = {}
-        for field in ["designation", "unit", "pu", "lot"]:
+        for field in EXPECTED_FIELDS:
             col = reverse_map.get(field)
-            record[field] = row[col] if col and col in row and pd.notna(row[col]) else ""
+            value = row[col] if col and col in row and pd.notna(row[col]) else ""
+            record[field] = float(value) if field == "pu" and isinstance(value, (int, float, str)) and value.replace('.', '').replace(',', '').replace('-', '').isdigit() else str(value)
         if any(record.values()):
             records.append(record)
         else:

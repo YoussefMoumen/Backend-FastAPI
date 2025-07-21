@@ -2,11 +2,11 @@ from fastapi import APIRouter, File, UploadFile, Form, HTTPException
 from fastapi.responses import JSONResponse
 import logging
 from app.utils.extract_pdf import extract_text_from_pdf
-from app.utils.extract_excel import extract_data_from_excel, gpt_extract_table
+from app.utils.extract_excel import extract_data_from_excel
 from app.utils.extract_word import extract_text_from_word
 from app.vector_store.weaviate_client import store_bip_articles, get_model, delete_bip_articles
 from sentence_transformers import SentenceTransformer
-from app.utils.column_mapping import auto_map_fields
+# from app.utils.column_mapping import auto_map_fields
 
 router = APIRouter()
 
@@ -27,7 +27,7 @@ async def upload_bip(file: UploadFile = File(...), user_id: str = Form(...)):
         raise HTTPException(status_code=400, detail="Format non supporté. Utilisez PDF, Excel ou Word.")
 
     # --- AJOUT ICI : mapping automatique des colonnes ---
-    articles = auto_map_fields(articles)  # <-- Cette fonction harmonise les clés
+    # articles = auto_map_fields(articles)  # <-- Cette fonction harmonise les clés
 
     # Ensure articles is a list of dictionaries with required fields
     if not isinstance(articles, list):
