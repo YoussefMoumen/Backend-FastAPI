@@ -117,3 +117,20 @@ def extract_data_from_excel(file_bytes):
     records = [r for r in records if any(r.values())]
     print(f"Extracted records: {records[:3]}")  # Show first 3 for debug
     return records
+
+def gpt_extract_table(file_bytes):
+    table_as_text = pd.read_excel(io.BytesIO(file_bytes), header=None).to_csv(index=False, header=False, sep="\t")
+    prompt = (
+        "Voici le contenu d'un tableau Excel :\n"
+        f"{table_as_text}\n"
+        "Pour chaque ligne, indique à quel champ logique chaque colonne correspond parmi : designation, unit, pu, lot. "
+        "Retourne une liste de dictionnaires Python, chaque dictionnaire représentant une ligne structurée."
+    )
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
+    )
+    import ast
+    records = ast.literal_eval(response.choices[0].message.content)
+    return records
