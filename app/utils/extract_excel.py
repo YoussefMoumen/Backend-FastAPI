@@ -17,7 +17,7 @@ FIELD_SYNONYMS = {
     "designation": ["designation", "désignation", "article", "libellé", "description", "item"],
     "unit": ["unit", "unité", "u", "unite"],
     "pu": ["pu", "prix unitaire", "prix", "unit price", "p.u."],
-    "lot": ["lot", "section", "groupe", "group"],
+    "lot": ["lot", "section", "groupe", "group", "type", "catégorie"],
 }
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
