@@ -4,6 +4,7 @@ import difflib
 import unicodedata
 from sentence_transformers import SentenceTransformer
 import numpy as np
+import openai
 
 # Define the expected fields
 EXPECTED_FIELDS = ["designation", "unit", "pu", "lot"]
@@ -66,24 +67,34 @@ def infer_column_mapping(columns):
             mapping[field] = None
     return mapping
 
+def gpt_map_columns(column_names):
+    prompt = (
+        "Voici une liste de colonnes extraites d'un tableau Excel :\n"
+        f"{', '.join(column_names)}\n"
+        "Pour chaque colonne, indique à quel champ logique elle correspond parmi : designation, unit, pu, lot. "
+        "Réponds sous la forme d'un dictionnaire Python où la clé est le nom de colonne et la valeur est le champ logique ou 'autre'."
+    )
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
+    )
+    import ast
+    mapping = ast.literal_eval(response['choices'][0]['message']['content'])
+    return mapping
+
 def extract_data_from_excel(file_bytes):
     df = pd.read_excel(io.BytesIO(file_bytes))
-    # Essaye d'abord le fuzzy mapping
-    mapping = infer_field_mapping(df.columns)
-    # Si certains champs ne sont pas trouvés, complète avec le semantic mapping
-    if not all(mapping.values()):
-        semantic_map = semantic_column_mapping(df.columns)
-        for k, v in mapping.items():
-            if not v:
-                # Cherche la première colonne qui a ce champ en semantic mapping
-                for col, field in semantic_map.items():
-                    if field == k:
-                        mapping[k] = col
-                        break
+    columns = list(df.columns)
+    # Utilise GPT pour mapper les colonnes
+    mapping = gpt_map_columns(columns)
+    # Inverse le mapping pour retrouver la colonne pour chaque champ logique
+    reverse_map = {v: k for k, v in mapping.items() if v in ["designation", "unit", "pu", "lot"]}
     records = []
     for _, row in df.iterrows():
         record = {}
-        for field, col in mapping.items():
+        for field in ["designation", "unit", "pu", "lot"]:
+            col = reverse_map.get(field)
             record[field] = row[col] if col and col in row and pd.notna(row[col]) else ""
         records.append(record)
     return records
