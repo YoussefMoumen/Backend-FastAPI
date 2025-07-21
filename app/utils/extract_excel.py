@@ -86,7 +86,7 @@ def find_header_row(df, field_synonyms=FIELD_SYNONYMS, max_rows=100):
                     break
             if matches_count >= 2:
                 logger.info(f"En-tête détecté à la ligne {i} avec {norm_cells}")
-                return i
+                return i - 1
     logger.warning(f"Aucun en-tête valide détecté dans les {max_rows} premières lignes, utilisation de la ligne 0.")
     return 0
 
