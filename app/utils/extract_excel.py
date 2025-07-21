@@ -52,7 +52,7 @@ def infer_field_mapping(headers, field_synonyms=FIELD_SYNONYMS):
 def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
     prompt = (
         "Voici une liste de colonnes extraites d'un tableau Excel :\n"
-        f"{', '.join(str(col) for col in column_names)}\n"  # Convertir tous les éléments en chaînes
+        f"{', '.join(str(col) for col in column_names)}\n"
         "Pour chaque colonne, indique à quel champ logique elle correspond parmi : designation, unit, pu, lot. "
         "Si aucune correspondance n'est claire, utilise 'autre'. Réponds sous la forme d'un dictionnaire Python."
     )
@@ -73,8 +73,8 @@ def find_header_row(df, field_synonyms=FIELD_SYNONYMS, max_rows=100):
     matches_count = 0
     for i in range(min(max_rows, len(df))):
         row = df.iloc[i]
-        norm_cells = [normalize(str(cell)) for cell in row.values if pd.notna(cell)]  # Forcer conversion en chaîne
-        if len(norm_cells) > 2:  # Exige au moins 3 colonnes non vides
+        norm_cells = [normalize(str(cell)) for cell in row.values if pd.notna(cell)]
+        if len(norm_cells) > 2:
             match_found = False
             for field, synonyms in field_synonyms.items():
                 for syn in synonyms:
@@ -84,11 +84,11 @@ def find_header_row(df, field_synonyms=FIELD_SYNONYMS, max_rows=100):
                         break
                 if match_found:
                     break
-            if matches_count >= 2:  # Exige au moins 2 correspondances
+            if matches_count >= 2:
                 logger.info(f"En-tête détecté à la ligne {i} avec {norm_cells}")
                 return i
     logger.warning(f"Aucun en-tête valide détecté dans les {max_rows} premières lignes, utilisation de la ligne 0.")
-    return 0  # fallback: first row
+    return 0
 
 def extract_data_from_excel(file_bytes):
     try:
@@ -108,8 +108,7 @@ def extract_data_from_excel(file_bytes):
 
     try:
         df = pd.read_excel(io.BytesIO(file_bytes), header=header_row_idx)
-        # Convertir tous les en-têtes en chaînes pour éviter les erreurs
-        df.columns = [str(col) for col in df.columns]
+        df.columns = [str(col) for col in df.columns]  # Forcer les en-têtes en chaînes
         logger.info(f"Colonnes détectées : {list(df.columns)}")
     except Exception as e:
         logger.error(f"Erreur lecture Excel avec header : {e}")
@@ -141,7 +140,14 @@ def extract_data_from_excel(file_bytes):
         for field in EXPECTED_FIELDS:
             col = reverse_map.get(field)
             value = row[col] if col and col in row and pd.notna(row[col]) else ""
-            record[field] = float(value) if field == "pu" and isinstance(value, (int, float, str)) and value.replace('.', '').replace(',', '').replace('-', '').isdigit() else str(value)
+            if field == "pu" and isinstance(value, (int, float)):
+                record[field] = float(value)  # Conversion directe si déjà numérique
+            elif field == "pu" and isinstance(value, str):
+                # Nettoyer et convertir si possible
+                cleaned_value = value.replace('.', '').replace(',', '').replace('-', '')
+                record[field] = float(value) if cleaned_value.isdigit() else str(value)
+            else:
+                record[field] = str(value)  # Tout le reste en chaîne
         if any(record.values()):
             records.append(record)
         else:
