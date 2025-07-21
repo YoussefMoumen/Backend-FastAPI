@@ -86,8 +86,24 @@ def gpt_map_columns(column_names):
     mapping = ast.literal_eval(response.choices[0].message.content)
     return mapping
 
+def find_header_row(df, field_synonyms=FIELD_SYNONYMS):
+    for i in range(min(30, len(df))):  # Scan first 30 rows
+        row = df.iloc[i]
+        # Normalize all cell values
+        norm_cells = [normalize(str(cell)) for cell in row.values]
+        # Try fuzzy/semantic mapping
+        for field, synonyms in field_synonyms.items():
+            for syn in synonyms:
+                if any(normalize(syn) in cell for cell in norm_cells):
+                    return i
+    return 0  # fallback: first row
+
 def extract_data_from_excel(file_bytes):
-    df = pd.read_excel(io.BytesIO(file_bytes))
+    # Read without header
+    df_raw = pd.read_excel(io.BytesIO(file_bytes), header=None)
+    header_row_idx = find_header_row(df_raw)
+    # Read again with correct header
+    df = pd.read_excel(io.BytesIO(file_bytes), header=header_row_idx)
     columns = list(df.columns)
     mapping = gpt_map_columns(columns)
     reverse_map = {v: k for k, v in mapping.items() if v in ["designation", "unit", "pu", "lot"]}
