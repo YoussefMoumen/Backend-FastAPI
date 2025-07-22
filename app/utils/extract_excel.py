@@ -226,39 +226,40 @@ def extract_data_from_excel(file_bytes):
         logger.error(f"Erreur lors de la lecture brute du fichier Excel : {e}")
         return []
 
-    try:
-        logger.info("Détection de la ligne d'en-tête...")
-        header_row_idx = find_header_row(df_raw)
-        logger.info(f"Ligne d'en-tête détectée : {header_row_idx}")
-    except Exception as e:
-        logger.error(f"Erreur lors de la détection de l'en-tête : {e}")
-        return []
-
-    try:
-        logger.info(f"Lecture du fichier avec en-tête à la ligne {header_row_idx}...")
-        df = pd.read_excel(io.BytesIO(file_bytes), header=header_row_idx)
-        df.columns = [str(col).lower() for col in df.columns]
-        logger.info(f"Colonnes détectées : {list(df.columns)}")
-    except Exception as e:
-        logger.error(f"Erreur lors de la lecture avec en-tête : {e}")
-        return []
-
-    try:
-        logger.info("Début du mappage des colonnes...")
-        mapping = infer_field_mapping(list(df.columns))
-        logger.info(f"Résultat du mappage initial : {mapping}")
-        # Vérifier si le mappage initial est partiellement valide (toutes les clés attendues sont mappées)
-        if all(k in mapping and mapping[k] is not None for k in EXPECTED_FIELDS):
-            logger.info("Mappage initial valide, utilisation directe.")
-        else:
-            logger.info("Passage au mappage GPT car mappage initial incomplet")
-            mapping = gpt_map_columns(list(df.columns))
-        logger.info(f"Mapping final : {mapping}")
-        if not mapping or not all(k in mapping for k in EXPECTED_FIELDS):
-            logger.error("Aucun mappage valide trouvé, extraction impossible.")
+    # Try multiple header candidates if mapping fails
+    max_header_row_attempts = 5
+    header_row_idx = find_header_row(df_raw)
+    for attempt in range(max_header_row_attempts):
+        try:
+            logger.info(f"Lecture du fichier avec en-tête à la ligne {header_row_idx} (tentative {attempt+1})...")
+            df = pd.read_excel(io.BytesIO(file_bytes), header=header_row_idx)
+            df.columns = [str(col).lower() for col in df.columns]
+            logger.info(f"Colonnes détectées : {list(df.columns)}")
+        except Exception as e:
+            logger.error(f"Erreur lors de la lecture avec en-tête : {e}")
             return []
-    except Exception as e:
-        logger.error(f"Erreur lors du mappage : {e}")
+
+        try:
+            logger.info("Début du mappage des colonnes...")
+            mapping = infer_field_mapping(list(df.columns))
+            logger.info(f"Résultat du mappage initial : {mapping}")
+            if all(k in mapping and mapping[k] is not None for k in EXPECTED_FIELDS):
+                logger.info("Mappage initial valide, utilisation directe.")
+            else:
+                logger.info("Passage au mappage GPT car mappage initial incomplet")
+                mapping = gpt_map_columns(list(df.columns))
+            logger.info(f"Mapping final : {mapping}")
+            # Accept mapping if at least one expected field is mapped
+            if mapping and any(mapping.get(k) for k in EXPECTED_FIELDS):
+                break
+            else:
+                logger.warning("Aucun mappage valide trouvé, tentative avec la ligne suivante comme en-tête.")
+                header_row_idx += 1
+        except Exception as e:
+            logger.error(f"Erreur lors du mappage : {e}")
+            return []
+    else:
+        logger.error("Aucun mappage valide trouvé après plusieurs tentatives, extraction impossible.")
         return []
 
     # Inverser le mappage pour mapper les colonnes aux champs attendus
