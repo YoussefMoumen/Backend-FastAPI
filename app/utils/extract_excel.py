@@ -38,22 +38,23 @@ def vectorize(text):
     return model.encode(str(text))
 
 def infer_field_mapping(headers, field_synonyms=FIELD_SYNONYMS):
+    logger.info(f"Début du mappage avec en-têtes : {headers}")
     mapping = {}
     norm_headers = [normalize(h) for h in headers]  # Déjà en minuscules
     for field, synonyms in field_synonyms.items():
         found = None
         for synonym in synonyms:
-            matches = difflib.get_close_matches(synonym, norm_headers, n=1, cutoff=0.7)  # Comparaison avec synonymes en minuscules
+            matches = difflib.get_close_matches(synonym, norm_headers, n=1, cutoff=0.7)
             if matches:
                 found = headers[norm_headers.index(matches[0])]
                 break
         mapping[field] = found
+    logger.info(f"Résultat du mappage : {mapping}")
     return mapping
 
 def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
-    # Inclure FIELD_SYNONYMS dans le prompt
+    logger.info(f"Début du mappage GPT avec colonnes : {column_names}")
     synonyms_str = "\n".join([f"{field}: {', '.join(synonyms)}" for field, synonyms in FIELD_SYNONYMS.items()])
-    # Forcer les noms de colonnes en minuscules dans le prompt pour consistance
     prompt = (
         "Voici une liste de colonnes extraites d'un tableau Excel :\n"
         f"{', '.join(str(col).lower() for col in column_names)}\n"
@@ -69,30 +70,77 @@ def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
         messages=[{"role": "user", "content": prompt}],
         temperature=0
     )
+    logger.info(f"Réponse brute de ChatGPT : {response.choices[0].message.content}")
     try:
         import ast
         mapping = ast.literal_eval(response.choices[0].message.content)
-        # Assurer que les clés du mappage sont en minuscules pour consistance
+        logger.info(f"Mappage GPT analysé avec succès : {mapping}")
         return {k.lower(): v for k, v in mapping.items() if v in EXPECTED_FIELDS or v == "autre"}
     except (ValueError, SyntaxError) as e:
-        logger.error(f"Erreur parsing GPT response: {e}. Réponse brute : {response.choices[0].message.content}")
-        # Tentative de récupération
+        logger.error(f"Erreur parsing GPT response : {e}. Réponse brute : {response.choices[0].message.content}")
         content = response.choices[0].message.content.lower().strip()
         if content.startswith("{") and content.endswith("}"):
             try:
-                return {k.strip(): v for k, v in ast.literal_eval(content).items() if v in EXPECTED_FIELDS or v == "autre"}
-            except (ValueError, SyntaxError):
+                mapping = {k.strip(): v for k, v in ast.literal_eval(content).items() if v in EXPECTED_FIELDS or v == "autre"}
+                logger.info(f"Mappage GPT récupéré : {mapping}")
+                return mapping
+            except (ValueError, SyntaxError) as e2:
+                logger.error(f"Erreur dans la récupération du mappage : {e2}")
                 return {}
+        logger.error("Échec total du parsing GPT, mappage vide retourné.")
         return {}
 
+def find_header_row(df, max_rows=200):
+    logger.info(f"Début de la détection de l'en-tête sur {min(max_rows, len(df))} lignes")
+    logger.info(f"Premières lignes pour analyse : \n{df.head(min(max_rows, len(df))).to_string()}")
+    # Détection heuristique basée sur les données
+    for i in range(min(max_rows, len(df))):
+        row = df.iloc[i]
+        non_null_count = row.notna().sum()
+        logger.debug(f"Ligne {i} : {non_null_count} colonnes non vides")
+        if non_null_count >= 3:
+            next_row = df.iloc[i + 1] if i + 1 < len(df) else None
+            if next_row is not None and next_row.notna().sum() > 2:
+                data_types = [type(cell).__name__ for cell in next_row if pd.notna(cell)]
+                logger.debug(f"Types de données ligne suivante {i+1} : {data_types}")
+                if any(t in ["int64", "float64", "datetime64"] for t in data_types):
+                    excerpt = df.head(min(max_rows, len(df))).to_string(index=True)
+                    prompt = (
+                        f"Voici un extrait des premières lignes d'un fichier Excel :\n{excerpt}\n"
+                        f"La ligne {i} a été détectée comme en-tête basée sur des règles (au moins 3 colonnes non vides suivies de données). "
+                        "Confirme si c'est correct en vérifiant si elle contient des titres de colonnes cohérents suivis de données. "
+                        "Réponds 'oui' ou 'non'."
+                    )
+                    response = client.chat.completions.create(
+                        model="gpt-4",
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0
+                    )
+                    logger.info(f"Validation ChatGPT pour ligne {i} : {response.choices[0].message.content}")
+                    if "oui" in response.choices[0].message.content.lower():
+                        logger.info(f"En-tête confirmé à la ligne {i} par validation ChatGPT")
+                        return i
+                    else:
+                        logger.warning(f"Validation ChatGPT échouée pour ligne {i}")
+    # Fallback à la détection par ChatGPT si les règles échouent
+    logger.info("Passage au fallback ChatGPT pour détection d'en-tête")
+    header_row_idx = gpt_detect_header_row(df, max_rows)
+    if header_row_idx >= 0:
+        logger.info(f"En-tête détecté à la ligne {header_row_idx} par fallback ChatGPT")
+        return header_row_idx
+    logger.warning(f"Aucun en-tête valide détecté dans les {max_rows} premières lignes, utilisation de la ligne 0.")
+    return 0
+
 def gpt_detect_header_row(df, max_rows=20):
-    # Préparer un extrait des premières lignes pour ChatGPT
+    logger.info(f"Début de la détection d'en-tête par ChatGPT sur {min(max_rows, len(df))} lignes")
     excerpt = df.head(min(max_rows, len(df))).to_string(index=True)
+    logger.debug(f"Extrait envoyé à ChatGPT : \n{excerpt}")
     prompt = (
         f"Voici un extrait des premières lignes d'un fichier Excel (index de ligne inclus) :\n"
         f"{excerpt}\n"
-        "Identifie la ligne qui contient les en-têtes du tableau (par exemple, des colonnes comme 'designation', 'unit', 'pu', 'lot' ou des termes similaires). "
-        "Les en-têtes sont généralement la première ligne avec des titres de colonnes cohérents. "
+        "Identifie la ligne qui contient les en-têtes du tableau. Les en-têtes sont généralement la première ligne avec des titres de colonnes cohérents "
+        "(par exemple, 'designation', 'unit', 'pu', 'lot' ou des termes similaires) suivie de données cohérentes sur les lignes suivantes. "
+        "Ignore les lignes avec des titres généraux ou des descriptions (comme 'Bibliothèque de prix'). "
         "Réponds uniquement avec le numéro de la ligne (index basé sur 0) où se trouve l'en-tête, par exemple : 0, 1, 2, etc."
     )
     response = client.chat.completions.create(
@@ -100,6 +148,7 @@ def gpt_detect_header_row(df, max_rows=20):
         messages=[{"role": "user", "content": prompt}],
         temperature=0
     )
+    logger.info(f"Réponse brute de ChatGPT : {response.choices[0].message.content}")
     try:
         header_row_idx = int(response.choices[0].message.content.strip())
         if 0 <= header_row_idx < min(max_rows, len(df)):
@@ -112,67 +161,46 @@ def gpt_detect_header_row(df, max_rows=20):
         logger.error(f"Erreur parsing réponse ChatGPT pour en-tête : {e}. Réponse brute : {response.choices[0].message.content}")
         return 0
 
-def find_header_row(df, field_synonyms=FIELD_SYNONYMS, max_rows=200):
-    # Tentative initiale avec ChatGPT
-    header_row_idx = gpt_detect_header_row(df, max_rows)
-    if header_row_idx >= 0:
-        return header_row_idx
-
-    # Fallback à la logique existante si ChatGPT échoue
-    for i in range(min(max_rows, len(df))):
-        row = df.iloc[i]
-        norm_cells = [normalize(str(cell)) for cell in row.values if pd.notna(cell)]
-        if len(norm_cells) > 1:  # Au moins 2 colonnes non vides
-            matches_count = 0
-            for field, synonyms in field_synonyms.items():
-                for syn in synonyms:
-                    if any(normalize(syn) in cell for cell in norm_cells):
-                        matches_count += 1
-                        break
-            if i == 0 and matches_count >= 1:  # Priorité absolue à la ligne 0 avec au moins 1 correspondance
-                logger.info(f"En-tête détecté à la ligne {i} avec {norm_cells}")
-                return i
-            elif i > 0 and matches_count >= 2:  # Seulement pour les lignes suivantes, exiger 2 correspondances
-                logger.info(f"En-tête détecté à la ligne {i} avec {norm_cells}")
-                return i
-    logger.warning(f"Aucun en-tête valide détecté dans les {max_rows} premières lignes, utilisation de la ligne 0.")
-    return 0
-
 def extract_data_from_excel(file_bytes):
+    logger.info("Début de l'extraction des données du fichier Excel")
     try:
         logger.info("Lecture brute du fichier Excel sans header...")
         df_raw = pd.read_excel(io.BytesIO(file_bytes), header=None)
-        logger.info(f"Premières lignes brutes :\n{df_raw.head(5)}")
+        logger.info(f"Premières lignes brutes lues avec succès : \n{df_raw.head(5).to_string()}")
     except Exception as e:
-        logger.error(f"Erreur lecture brute Excel : {e}")
+        logger.error(f"Erreur lors de la lecture brute du fichier Excel : {e}")
         return []
 
     try:
+        logger.info("Détection de la ligne d'en-tête...")
         header_row_idx = find_header_row(df_raw)
-        logger.info(f"Ligne d'entête détectée : {header_row_idx}")
+        logger.info(f"Ligne d'en-tête détectée : {header_row_idx}")
     except Exception as e:
-        logger.error(f"Erreur détection header : {e}")
+        logger.error(f"Erreur lors de la détection de l'en-tête : {e}")
         return []
 
     try:
+        logger.info(f"Lecture du fichier avec en-tête à la ligne {header_row_idx}...")
         df = pd.read_excel(io.BytesIO(file_bytes), header=header_row_idx)
         df.columns = [str(col).lower() for col in df.columns]  # Forcer les en-têtes en minuscules
         logger.info(f"Colonnes détectées : {list(df.columns)}")
     except Exception as e:
-        logger.error(f"Erreur lecture Excel avec header : {e}")
+        logger.error(f"Erreur lors de la lecture avec en-tête : {e}")
         return []
 
     try:
+        logger.info("Début du mappage des colonnes...")
         mapping = infer_field_mapping(list(df.columns))
-        logger.info(f"infer_field_mapping : {mapping}")
+        logger.info(f"Résultat du mappage initial : {mapping}")
         if not any(value in EXPECTED_FIELDS for value in mapping.values()):
+            logger.info("Passage au mappage GPT car aucun mappage initial valide")
             mapping = gpt_map_columns(list(df.columns))
         logger.info(f"Mapping final : {mapping}")
         if not mapping:
             logger.error("Aucun mappage valide trouvé, extraction impossible.")
             return []
     except Exception as e:
-        logger.error(f"Erreur mapping : {e}")
+        logger.error(f"Erreur lors du mappage : {e}")
         return []
 
     reverse_map = {v: k for k, v in mapping.items() if v in EXPECTED_FIELDS}
