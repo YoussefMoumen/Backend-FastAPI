@@ -302,10 +302,10 @@ def extract_data_from_excel(file_bytes):
                 record[field] = float(value) if cleaned_value.isdigit() else str(value)
             else:
                 record[field] = str(value)
-        if any(record.values()):
-            records.append(record)
-        else:
-            logger.warning(f"Ligne vide ou non reconnue à l'index {idx}: {row}")
+        # Skip row if both 'unit' and 'pu' are empty
+        if not record.get("unit") and not record.get("pu"):
+            continue
+        records.append(record)
 
     logger.info(f"Nombre de lignes extraites : {len(records)}")
     if records:
