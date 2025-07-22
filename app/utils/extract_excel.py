@@ -302,8 +302,8 @@ def extract_data_from_excel(file_bytes):
                 record[field] = float(value) if cleaned_value.isdigit() else str(value)
             else:
                 record[field] = str(value)
-        # Skip row if both 'unit' and 'pu' are empty
-        if not record.get("unit") and not record.get("pu"):
+        # Skip row if all of 'designation', 'unit', and 'pu' are empty
+        if not record.get("designation") and not record.get("unit") and not record.get("pu"):
             continue
         records.append(record)
 
