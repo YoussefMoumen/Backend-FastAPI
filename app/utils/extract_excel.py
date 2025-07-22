@@ -76,7 +76,7 @@ def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
         return {k.lower(): v for k, v in mapping.items() if v in EXPECTED_FIELDS or v == "autre"}
     except (ValueError, SyntaxError) as e:
         logger.error(f"Erreur parsing GPT response: {e}. Réponse brute : {response.choices[0].message.content}")
-        # Tentative de récupération : si la réponse est du texte, extraire manuellement
+        # Tentative de récupération
         content = response.choices[0].message.content.lower().strip()
         if content.startswith("{") and content.endswith("}"):
             try:
@@ -85,19 +85,54 @@ def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
                 return {}
         return {}
 
-def find_header_row(df, field_synonyms=FIELD_SYNONYMS, max_rows=100):
-    # Initialiser i à 0 et prioriser la ligne 0
+def gpt_detect_header_row(df, max_rows=20):
+    # Préparer un extrait des premières lignes pour ChatGPT
+    excerpt = df.head(min(max_rows, len(df))).to_string(index=True)
+    prompt = (
+        f"Voici un extrait des premières lignes d'un fichier Excel (index de ligne inclus) :\n"
+        f"{excerpt}\n"
+        "Identifie la ligne qui contient les en-têtes du tableau (par exemple, des colonnes comme 'designation', 'unit', 'pu', 'lot' ou des termes similaires). "
+        "Les en-têtes sont généralement la première ligne avec des titres de colonnes cohérents. "
+        "Réponds uniquement avec le numéro de la ligne (index basé sur 0) où se trouve l'en-tête, par exemple : 0, 1, 2, etc."
+    )
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
+    )
+    try:
+        header_row_idx = int(response.choices[0].message.content.strip())
+        if 0 <= header_row_idx < min(max_rows, len(df)):
+            logger.info(f"En-tête détecté à la ligne {header_row_idx} par ChatGPT")
+            return header_row_idx
+        else:
+            logger.warning(f"Indice d'en-tête {header_row_idx} invalide, utilisation de 0.")
+            return 0
+    except (ValueError, IndexError) as e:
+        logger.error(f"Erreur parsing réponse ChatGPT pour en-tête : {e}. Réponse brute : {response.choices[0].message.content}")
+        return 0
+
+def find_header_row(df, field_synonyms=FIELD_SYNONYMS, max_rows=200):
+    # Tentative initiale avec ChatGPT
+    header_row_idx = gpt_detect_header_row(df, max_rows)
+    if header_row_idx >= 0:
+        return header_row_idx
+
+    # Fallback à la logique existante si ChatGPT échoue
     for i in range(min(max_rows, len(df))):
         row = df.iloc[i]
         norm_cells = [normalize(str(cell)) for cell in row.values if pd.notna(cell)]
-        if len(norm_cells) > 0:  # Au moins 1 colonne non vide
+        if len(norm_cells) > 1:  # Au moins 2 colonnes non vides
             matches_count = 0
             for field, synonyms in field_synonyms.items():
                 for syn in synonyms:
                     if any(normalize(syn) in cell for cell in norm_cells):
                         matches_count += 1
                         break
-            if matches_count >= 2:  # Seulement pour les lignes suivantes, exiger 2 correspondances
+            if i == 0 and matches_count >= 1:  # Priorité absolue à la ligne 0 avec au moins 1 correspondance
+                logger.info(f"En-tête détecté à la ligne {i} avec {norm_cells}")
+                return i
+            elif i > 0 and matches_count >= 2:  # Seulement pour les lignes suivantes, exiger 2 correspondances
                 logger.info(f"En-tête détecté à la ligne {i} avec {norm_cells}")
                 return i
     logger.warning(f"Aucun en-tête valide détecté dans les {max_rows} premières lignes, utilisation de la ligne 0.")
