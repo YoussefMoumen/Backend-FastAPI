@@ -71,21 +71,32 @@ def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
         )
         logger.info(f"Réponse brute de ChatGPT : {response.choices[0].message.content}")
         import ast
-        mapping = ast.literal_eval(response.choices[0].message.content)
+        # Tentative de parsing avec gestion des erreurs
+        try:
+            mapping = ast.literal_eval(response.choices[0].message.content)
+        except (ValueError, SyntaxError) as e:
+            logger.warning(f"Parsing initial échoué avec ast.literal_eval : {e}. Tentative avec json.loads.")
+            import json
+            mapping = json.loads(response.choices[0].message.content.replace("'", '"'))
         logger.info(f"Mappage GPT analysé avec succès : {mapping}")
-        return {k.lower(): v for k, v in mapping.items() if v in EXPECTED_FIELDS or v == "autre"}
-    except (ValueError, SyntaxError) as e:
+        # Créer un mappage priorisant les premiers matchs pour chaque champ
+        final_mapping = {}
+        used_columns = set()
+        for field in EXPECTED_FIELDS:
+            for col, mapped_field in mapping.items():
+                if col.lower() not in used_columns and mapped_field == field:
+                    final_mapping[col.lower()] = mapped_field
+                    used_columns.add(col.lower())
+                    break
+        # Ajouter les "autre" si pas encore mappés
+        for col, mapped_field in mapping.items():
+            if col.lower() not in used_columns and mapped_field == "autre":
+                final_mapping[col.lower()] = "autre"
+                used_columns.add(col.lower())
+        logger.info(f"Mappage final GPT : {final_mapping}")
+        return final_mapping
+    except (ValueError, SyntaxError, json.JSONDecodeError) as e:
         logger.error(f"Erreur parsing GPT response : {e}. Réponse brute : {response.choices[0].message.content}")
-        content = response.choices[0].message.content.lower().strip()
-        if content.startswith("{") and content.endswith("}"):
-            try:
-                mapping = {k.strip(): v for k, v in ast.literal_eval(content).items() if v in EXPECTED_FIELDS or v == "autre"}
-                logger.info(f"Mappage GPT récupéré : {mapping}")
-                return mapping
-            except (ValueError, SyntaxError) as e2:
-                logger.error(f"Erreur dans la récupération du mappage : {e2}")
-                return {}
-        logger.error("Échec total du parsing GPT, mappage vide retourné.")
         return {}
     except openai.RateLimitError as e:
         logger.error(f"Erreur de limite de taux ChatGPT : {e}. Mappage vide retourné.")
