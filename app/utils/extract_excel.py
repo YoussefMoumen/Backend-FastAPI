@@ -247,21 +247,22 @@ def extract_data_from_excel(file_bytes):
         logger.info("Début du mappage des colonnes...")
         mapping = infer_field_mapping(list(df.columns))
         logger.info(f"Résultat du mappage initial : {mapping}")
-        # Vérifier si le mappage initial est partiellement valide
-        if any(value is not None for value in mapping.values()):
-            logger.info("Mappage initial partiellement valide, utilisation directe.")
+        # Vérifier si le mappage initial est partiellement valide (toutes les clés attendues sont mappées)
+        if all(k in mapping and mapping[k] is not None for k in EXPECTED_FIELDS):
+            logger.info("Mappage initial valide, utilisation directe.")
         else:
-            logger.info("Passage au mappage GPT car aucun mappage initial valide")
+            logger.info("Passage au mappage GPT car mappage initial incomplet")
             mapping = gpt_map_columns(list(df.columns))
         logger.info(f"Mapping final : {mapping}")
-        if not mapping or not any(value in EXPECTED_FIELDS for value in mapping.values()):
+        if not mapping or not all(k in mapping for k in EXPECTED_FIELDS):
             logger.error("Aucun mappage valide trouvé, extraction impossible.")
             return []
     except Exception as e:
         logger.error(f"Erreur lors du mappage : {e}")
         return []
 
-    reverse_map = {v: k for k, v in mapping.items() if v in EXPECTED_FIELDS}
+    # Inverser le mappage pour mapper les colonnes aux champs attendus
+    reverse_map = {mapping.get(k, k): k for k in EXPECTED_FIELDS if mapping.get(k) is not None}
     logger.info(f"Reverse map utilisé : {reverse_map}")
 
     if not reverse_map:
