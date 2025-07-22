@@ -62,7 +62,7 @@ def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
         "Utilise ces synonymes comme base principale pour mapper chaque colonne à un champ logique parmi : designation, unit, pu, lot. "
         "Si une colonne correspond à un synonyme d'un champ, mappe-la à ce champ. "
         "Si aucune correspondance claire n'est trouvée avec les synonymes, utilise ta propre connaissance pour mapper ou utilise 'autre'. "
-        "Réponds sous la forme d'un dictionnaire Python."
+        "Réponds sous la forme d'un dictionnaire Python, par exemple : {'colonne1': 'designation', 'colonne2': 'unit', ...}."
     )
     response = client.chat.completions.create(
         model="gpt-4",
@@ -75,7 +75,14 @@ def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
         # Assurer que les clés du mappage sont en minuscules pour consistance
         return {k.lower(): v for k, v in mapping.items() if v in EXPECTED_FIELDS or v == "autre"}
     except (ValueError, SyntaxError) as e:
-        logger.error(f"Erreur parsing GPT response: {e}")
+        logger.error(f"Erreur parsing GPT response: {e}. Réponse brute : {response.choices[0].message.content}")
+        # Tentative de récupération : si la réponse est du texte, extraire manuellement
+        content = response.choices[0].message.content.lower().strip()
+        if content.startswith("{") and content.endswith("}"):
+            try:
+                return {k.strip(): v for k, v in ast.literal_eval(content).items() if v in EXPECTED_FIELDS or v == "autre"}
+            except (ValueError, SyntaxError):
+                return {}
         return {}
 
 def find_header_row(df, field_synonyms=FIELD_SYNONYMS, max_rows=100):
@@ -90,10 +97,7 @@ def find_header_row(df, field_synonyms=FIELD_SYNONYMS, max_rows=100):
                     if any(normalize(syn) in cell for cell in norm_cells):
                         matches_count += 1
                         break
-            if i == 0 and matches_count >= 1:  # Priorité absolue à la ligne 0 avec au moins 1 correspondance
-                logger.info(f"En-tête détecté à la ligne {i} avec {norm_cells}")
-                return i
-            elif i > 0 and matches_count >= 2:  # Seulement pour les lignes suivantes, exiger 2 correspondances
+            if matches_count >= 2:  # Seulement pour les lignes suivantes, exiger 2 correspondances
                 logger.info(f"En-tête détecté à la ligne {i} avec {norm_cells}")
                 return i
     logger.warning(f"Aucun en-tête valide détecté dans les {max_rows} premières lignes, utilisation de la ligne 0.")
