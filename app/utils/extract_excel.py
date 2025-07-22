@@ -226,10 +226,12 @@ def extract_data_from_excel(file_bytes):
         logger.error(f"Erreur lors de la lecture brute du fichier Excel : {e}")
         return []
 
-    # Try multiple header candidates if mapping fails
     max_header_row_attempts = 5
     header_row_idx = find_header_row(df_raw)
+    tried_rows = set()
+    mapping = {}
     for attempt in range(max_header_row_attempts):
+        tried_rows.add(header_row_idx)
         try:
             logger.info(f"Lecture du fichier avec en-tête à la ligne {header_row_idx} (tentative {attempt+1})...")
             df = pd.read_excel(io.BytesIO(file_bytes), header=header_row_idx)
@@ -249,18 +251,35 @@ def extract_data_from_excel(file_bytes):
                 logger.info("Passage au mappage GPT car mappage initial incomplet")
                 mapping = gpt_map_columns(list(df.columns))
             logger.info(f"Mapping final : {mapping}")
-            # Accept mapping if at least one expected field is mapped
             if mapping and any(mapping.get(k) for k in EXPECTED_FIELDS):
                 break
             else:
                 logger.warning("Aucun mappage valide trouvé, tentative avec la ligne suivante comme en-tête.")
                 header_row_idx += 1
+                if header_row_idx in tried_rows or header_row_idx >= len(df_raw):
+                    break
         except Exception as e:
             logger.error(f"Erreur lors du mappage : {e}")
             return []
     else:
-        logger.error("Aucun mappage valide trouvé après plusieurs tentatives, extraction impossible.")
-        return []
+        # As a last resort, try row 0 as header if not already tried
+        if 0 not in tried_rows:
+            try:
+                logger.info("Tentative finale avec la première ligne (0) comme en-tête...")
+                df = pd.read_excel(io.BytesIO(file_bytes), header=0)
+                df.columns = [str(col).lower() for col in df.columns]
+                mapping = infer_field_mapping(list(df.columns))
+                if not (mapping and any(mapping.get(k) for k in EXPECTED_FIELDS)):
+                    mapping = gpt_map_columns(list(df.columns))
+                if not (mapping and any(mapping.get(k) for k in EXPECTED_FIELDS)):
+                    logger.error("Aucun mappage valide trouvé même avec la première ligne comme en-tête.")
+                    return []
+            except Exception as e:
+                logger.error(f"Erreur lors de la tentative finale avec la première ligne comme en-tête : {e}")
+                return []
+        else:
+            logger.error("Aucun mappage valide trouvé après plusieurs tentatives, extraction impossible.")
+            return []
 
     # Inverser le mappage pour mapper les colonnes aux champs attendus
     reverse_map = {mapping.get(k, k): k for k in EXPECTED_FIELDS if mapping.get(k) is not None}
