@@ -52,6 +52,12 @@ def infer_field_mapping(headers, field_synonyms=FIELD_SYNONYMS):
 
 def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
     logger.info(f"Début du mappage GPT avec colonnes : {column_names}")
+    FIELD_SYNONYMS = {
+        "designation": [s.lower() for s in ["designation", "désignation", "article", "libellé", "description", "item", "type", "description ouvrage", "description composant"]],
+        "unit": [s.lower() for s in ["unit", "unité", "u", "unite", "m²", "m3", "u", "unité du détail", "unité"]],
+        "pu": [s.lower() for s in ["pu", "prix unitaire", "prix", "unit price", "p.u.", "cout", "coût", "prix ht", "montant", "prix de revient", "prix de revient du détail", "prix unitaires", "prix totaux"]],
+        "lot": [s.lower() for s in ["lot", "section", "groupe", "group", "type", "catégorie", "phase", "gros œuvre", "gros oeuvres", "catégorie"]],
+    }
     synonyms_str = "\n".join([f"{field}: {', '.join(synonyms)}" for field, synonyms in FIELD_SYNONYMS.items()])
     prompt = (
         "Voici une liste de colonnes extraites d'un tableau Excel :\n"
@@ -59,9 +65,10 @@ def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
         "Voici les synonymes définis pour mapper les colonnes aux champs logiques :\n"
         f"{synonyms_str}\n"
         "Utilise ces synonymes comme base principale pour mapper chaque colonne à un champ logique parmi : designation, unit, pu, lot. "
-        "Si une colonne correspond à un synonyme d'un champ, mappe-la à ce champ. "
-        "Si aucune correspondance claire n'est trouvée avec les synonymes, utilise ta propre connaissance pour mapper ou utilise 'autre'. "
-        "Réponds sous la forme d'un dictionnaire Python, par exemple : {'colonne1': 'designation', 'colonne2': 'unit', ...}."
+        "Si une colonne correspond à un synonyme d'un champ, mappe-la à ce champ. Exemples utiles : 'description composant' pourrait être 'designation', "
+        "'unité du détail' pourrait être 'unit', 'prix de revient' pourrait être 'pu', 'type' pourrait être 'lot'. "
+        "Si aucune correspondance claire n'est trouvée avec les synonymes, utilise 'autre'. "
+        "Réponds uniquement avec un dictionnaire Python, par exemple : {'colonne1': 'designation', 'colonne2': 'unit', ...}, sans texte narratif."
     )
     try:
         response = client.chat.completions.create(
@@ -71,28 +78,43 @@ def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
         )
         logger.info(f"Réponse brute de ChatGPT : {response.choices[0].message.content}")
         import ast
-        # Tentative de parsing avec gestion des erreurs
-        try:
-            mapping = ast.literal_eval(response.choices[0].message.content)
-        except (ValueError, SyntaxError) as e:
-            logger.warning(f"Parsing initial échoué avec ast.literal_eval : {e}. Tentative avec json.loads.")
-            import json
-            mapping = json.loads(response.choices[0].message.content.replace("'", '"'))
+        # Extraire le dictionnaire en ignorant le texte narratif
+        content = response.choices[0].message.content.strip()
+        start_idx = content.find("{")
+        end_idx = content.rfind("}") + 1
+        if start_idx != -1 and end_idx != 0 and start_idx < end_idx:
+            dict_content = content[start_idx:end_idx]
+            try:
+                mapping = ast.literal_eval(dict_content)
+            except (ValueError, SyntaxError) as e:
+                logger.warning(f"Parsing initial échoué avec ast.literal_eval : {e}. Tentative avec json.loads.")
+                import json
+                mapping = json.loads(dict_content.replace("'", '"'))
+        else:
+            logger.error(f"Réponse invalide, pas de dictionnaire détecté : {content}")
+            return {}
         logger.info(f"Mappage GPT analysé avec succès : {mapping}")
-        # Créer un mappage priorisant les premiers matchs pour chaque champ
+        # Prioriser le mappage souhaité et gérer les doublons
         final_mapping = {}
+        priority_fields = {"description composant": "designation", "unité du détail": "unit", "prix de revient": "pu", "type": "lot"}
         used_columns = set()
-        for field in EXPECTED_FIELDS:
-            for col, mapped_field in mapping.items():
-                if col.lower() not in used_columns and mapped_field == field:
-                    final_mapping[col.lower()] = mapped_field
-                    used_columns.add(col.lower())
-                    break
+        # Appliquer les priorités d'abord
+        for col, target_field in priority_fields.items():
+            if col.lower() in [c.lower() for c in column_names]:
+                final_mapping[col.lower()] = target_field
+                used_columns.add(col.lower())
+        # Mapper les autres colonnes restantes
+        for col, mapped_field in mapping.items():
+            col_lower = col.lower()
+            if col_lower not in used_columns and mapped_field in EXPECTED_FIELDS:
+                final_mapping[col_lower] = mapped_field
+                used_columns.add(col_lower)
         # Ajouter les "autre" si pas encore mappés
         for col, mapped_field in mapping.items():
-            if col.lower() not in used_columns and mapped_field == "autre":
-                final_mapping[col.lower()] = "autre"
-                used_columns.add(col.lower())
+            col_lower = col.lower()
+            if col_lower not in used_columns and mapped_field == "autre":
+                final_mapping[col_lower] = "autre"
+                used_columns.add(col_lower)
         logger.info(f"Mappage final GPT : {final_mapping}")
         return final_mapping
     except (ValueError, SyntaxError, json.JSONDecodeError) as e:
@@ -111,32 +133,35 @@ def find_header_row(df, max_rows=30):
     threshold = max(3, int(avg_non_null * 0.8))  # Seuil dynamique, minimum 3
     logger.info(f"Seuil dynamique de colonnes non vides : {threshold}")
 
-    # Détection heuristique basée sur la densité et la transition
+    # Détection heuristique basée sur la densité, la transition et l'absence de nombres dans l'en-tête
     for i in range(min(max_rows, len(df))):
         row = df.iloc[i]
         non_null_count = row.notna().sum()
         logger.debug(f"Ligne {i} : {non_null_count} colonnes non vides")
-        if non_null_count >= threshold:  # Utilise le seuil dynamique
-            next_row = df.iloc[i + 1] if i + 1 < len(df) else None
-            if next_row is not None and next_row.notna().sum() > 1:  # Au moins 2 valeurs dans la ligne suivante
-                data_types = [type(cell).__name__ for cell in next_row if pd.notna(cell)]
-                logger.debug(f"Types de données ligne suivante {i+1} : {data_types}")
-                if any(t in ["int64", "float64", "object", "datetime64"] for t in data_types):  # Types variés
-                    try:
-                        response = client.chat.completions.create(
-                            model="gpt-4",
-                            messages=[{"role": "user", "content": f"Voici un extrait des lignes autour de la ligne {i} d'un fichier Excel :\n{df.iloc[max(0, i-2):i+3].to_string(index=True)}\nLa ligne {i} a été détectée comme en-tête basée sur des règles (au moins {threshold} colonnes non vides suivies de données). Confirme si c'est correct en vérifiant si elle contient des titres de colonnes cohérents suivis de données. Réponds 'oui' ou 'non'."}],
-                            temperature=0
-                        )
-                        logger.info(f"Validation ChatGPT pour ligne {i} : {response.choices[0].message.content}")
-                        if "oui" in response.choices[0].message.content.lower():
-                            logger.info(f"En-tête confirmé à la ligne {i} par validation ChatGPT")
-                            return i
-                        else:
-                            logger.warning(f"Validation ChatGPT échouée pour ligne {i}")
-                    except openai.RateLimitError as e:
-                        logger.error(f"Erreur de limite de taux ChatGPT : {e}. Passage à la validation statistique.")
-                        break
+        if non_null_count >= threshold:
+            # Vérifier si la ligne contient principalement du texte (pas de nombres)
+            is_header = all(not pd.to_numeric(cell, errors='coerce') == cell for cell in row if pd.notna(cell))
+            if is_header:
+                next_row = df.iloc[i + 1] if i + 1 < len(df) else None
+                if next_row is not None and next_row.notna().sum() > 1:
+                    data_types = [type(cell).__name__ for cell in next_row if pd.notna(cell)]
+                    logger.debug(f"Types de données ligne suivante {i+1} : {data_types}")
+                    if any(t in ["int64", "float64", "object", "datetime64"] for t in data_types):
+                        try:
+                            response = client.chat.completions.create(
+                                model="gpt-4",
+                                messages=[{"role": "user", "content": f"Voici un extrait des lignes autour de la ligne {i} d'un fichier Excel :\n{df.iloc[max(0, i-2):i+3].to_string(index=True)}\nLa ligne {i} a été détectée comme en-tête basée sur des règles (au moins {threshold} colonnes non vides sans nombres, suivies de données). Confirme si c'est correct en vérifiant si elle contient des titres de colonnes cohérents suivis de données. Réponds 'oui' ou 'non'."}],
+                                temperature=0
+                            )
+                            logger.info(f"Validation ChatGPT pour ligne {i} : {response.choices[0].message.content}")
+                            if "oui" in response.choices[0].message.content.lower():
+                                logger.info(f"En-tête confirmé à la ligne {i} par validation ChatGPT")
+                                return i
+                            else:
+                                logger.warning(f"Validation ChatGPT échouée pour ligne {i}")
+                        except openai.RateLimitError as e:
+                            logger.error(f"Erreur de limite de taux ChatGPT : {e}. Passage à la validation statistique.")
+                            break
     # Fallback statistique si ChatGPT échoue ou n'est pas utilisé
     logger.info("Passage à la détection statistique en raison de l'échec ou absence de ChatGPT")
     for i in range(min(max_rows, len(df))):
@@ -158,7 +183,7 @@ def find_header_row(df, max_rows=30):
         logger.error(f"Erreur de limite de taux ChatGPT dans fallback : {e}. Utilisation de 0.")
     logger.warning(f"Aucun en-tête valide détecté dans les {max_rows} premières lignes, utilisation de la ligne 0.")
     return 0
-
+    
 def gpt_detect_header_row(df, max_rows=15):
     logger.info(f"Début de la détection d'en-tête par ChatGPT sur {min(max_rows, len(df))} lignes")
     excerpt = df.head(min(max_rows, len(df))).to_string(index=True)
@@ -222,11 +247,14 @@ def extract_data_from_excel(file_bytes):
         logger.info("Début du mappage des colonnes...")
         mapping = infer_field_mapping(list(df.columns))
         logger.info(f"Résultat du mappage initial : {mapping}")
-        if not any(value in EXPECTED_FIELDS for value in mapping.values()):
+        # Vérifier si le mappage initial est partiellement valide
+        if any(value is not None for value in mapping.values()):
+            logger.info("Mappage initial partiellement valide, utilisation directe.")
+        else:
             logger.info("Passage au mappage GPT car aucun mappage initial valide")
             mapping = gpt_map_columns(list(df.columns))
         logger.info(f"Mapping final : {mapping}")
-        if not mapping:
+        if not mapping or not any(value in EXPECTED_FIELDS for value in mapping.values()):
             logger.error("Aucun mappage valide trouvé, extraction impossible.")
             return []
     except Exception as e:
