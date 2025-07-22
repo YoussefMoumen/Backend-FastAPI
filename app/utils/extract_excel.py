@@ -8,6 +8,7 @@ import openai
 import os
 import logging
 from typing import List, Dict
+import time
 
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -16,10 +17,10 @@ EXPECTED_FIELDS = ["designation", "unit", "pu", "lot"]
 
 # Convertir tous les synonymes en minuscules pour insensible à la casse
 FIELD_SYNONYMS = {
-    "designation": [s.lower() for s in ["designation", "désignation", "article", "libellé", "description", "item", "ouvrage"]],
-    "unit": [s.lower() for s in ["unit", "unité", "u", "unite", "m²", "m3", "u"]],
-    "pu": [s.lower() for s in ["pu", "prix unitaire", "prix", "unit price", "p.u.", "cout", "coût", "prix ht", "montant"]],
-    "lot": [s.lower() for s in ["lot", "section", "groupe", "group", "type", "catégorie", "phase", "gros œuvre", "gros oeuvres"]],
+    "designation": [s.lower() for s in ["designation", "désignation", "article", "libellé", "description", "item", "type", "description ouvrage"]],
+    "unit": [s.lower() for s in ["unit", "unité", "u", "unite", "m²", "m3", "u", "unité du détail"]],
+    "pu": [s.lower() for s in ["pu", "prix unitaire", "prix", "unit price", "p.u.", "cout", "coût", "prix ht", "montant", "prix de revient", "prix de revient du détail"]],
+    "lot": [s.lower() for s in ["lot", "section", "groupe", "group", "type", "catégorie", "phase", "gros œuvre", "gros oeuvres", "catégorie"]],
 }
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -28,11 +29,8 @@ logger = logging.getLogger("extract_excel")
 logger.setLevel(logging.INFO)
 
 def normalize(text):
-    text = str(text).strip().lower()  # Déjà insensible à la casse
-    return ''.join(
-        c for c in unicodedata.normalize('NFD', text)
-        if unicodedata.category(c) != 'Mn'
-    )
+    text = str(text).strip().lower()
+    return ''.join(c for c in unicodedata.normalize('NFD', text) if unicodedata.category(c) != 'Mn')
 
 def vectorize(text):
     return model.encode(str(text))
@@ -40,7 +38,7 @@ def vectorize(text):
 def infer_field_mapping(headers, field_synonyms=FIELD_SYNONYMS):
     logger.info(f"Début du mappage avec en-têtes : {headers}")
     mapping = {}
-    norm_headers = [normalize(h) for h in headers]  # Déjà en minuscules
+    norm_headers = [normalize(h) for h in headers]
     for field, synonyms in field_synonyms.items():
         found = None
         for synonym in synonyms:
@@ -65,13 +63,13 @@ def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
         "Si aucune correspondance claire n'est trouvée avec les synonymes, utilise ta propre connaissance pour mapper ou utilise 'autre'. "
         "Réponds sous la forme d'un dictionnaire Python, par exemple : {'colonne1': 'designation', 'colonne2': 'unit', ...}."
     )
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0
-    )
-    logger.info(f"Réponse brute de ChatGPT : {response.choices[0].message.content}")
     try:
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0
+        )
+        logger.info(f"Réponse brute de ChatGPT : {response.choices[0].message.content}")
         import ast
         mapping = ast.literal_eval(response.choices[0].message.content)
         logger.info(f"Mappage GPT analysé avec succès : {mapping}")
@@ -89,49 +87,68 @@ def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
                 return {}
         logger.error("Échec total du parsing GPT, mappage vide retourné.")
         return {}
+    except openai.RateLimitError as e:
+        logger.error(f"Erreur de limite de taux ChatGPT : {e}. Mappage vide retourné.")
+        return {}
 
-def find_header_row(df, max_rows=200):
+def find_header_row(df, max_rows=30):
     logger.info(f"Début de la détection de l'en-tête sur {min(max_rows, len(df))} lignes")
     logger.info(f"Premières lignes pour analyse : \n{df.head(min(max_rows, len(df))).to_string()}")
-    # Détection heuristique basée sur les données
+    # Calculer le nombre moyen de colonnes non vides comme seuil dynamique
+    total_non_null = sum(row.notna().sum() for _, row in df.head(max_rows).iterrows())
+    avg_non_null = total_non_null / min(max_rows, len(df))
+    threshold = max(3, int(avg_non_null * 0.8))  # Seuil dynamique, minimum 3
+    logger.info(f"Seuil dynamique de colonnes non vides : {threshold}")
+
+    # Détection heuristique basée sur la densité et la transition
     for i in range(min(max_rows, len(df))):
         row = df.iloc[i]
         non_null_count = row.notna().sum()
         logger.debug(f"Ligne {i} : {non_null_count} colonnes non vides")
-        if non_null_count >= 3:
+        if non_null_count >= threshold:  # Utilise le seuil dynamique
             next_row = df.iloc[i + 1] if i + 1 < len(df) else None
-            if next_row is not None and next_row.notna().sum() > 2:
+            if next_row is not None and next_row.notna().sum() > 1:  # Au moins 2 valeurs dans la ligne suivante
                 data_types = [type(cell).__name__ for cell in next_row if pd.notna(cell)]
                 logger.debug(f"Types de données ligne suivante {i+1} : {data_types}")
-                if any(t in ["int64", "float64", "datetime64"] for t in data_types):
-                    excerpt = df.head(min(max_rows, len(df))).to_string(index=True)
-                    prompt = (
-                        f"Voici un extrait des premières lignes d'un fichier Excel :\n{excerpt}\n"
-                        f"La ligne {i} a été détectée comme en-tête basée sur des règles (au moins 3 colonnes non vides suivies de données). "
-                        "Confirme si c'est correct en vérifiant si elle contient des titres de colonnes cohérents suivis de données. "
-                        "Réponds 'oui' ou 'non'."
-                    )
-                    response = client.chat.completions.create(
-                        model="gpt-4",
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=0
-                    )
-                    logger.info(f"Validation ChatGPT pour ligne {i} : {response.choices[0].message.content}")
-                    if "oui" in response.choices[0].message.content.lower():
-                        logger.info(f"En-tête confirmé à la ligne {i} par validation ChatGPT")
-                        return i
-                    else:
-                        logger.warning(f"Validation ChatGPT échouée pour ligne {i}")
-    # Fallback à la détection par ChatGPT si les règles échouent
-    logger.info("Passage au fallback ChatGPT pour détection d'en-tête")
-    header_row_idx = gpt_detect_header_row(df, max_rows)
-    if header_row_idx >= 0:
-        logger.info(f"En-tête détecté à la ligne {header_row_idx} par fallback ChatGPT")
-        return header_row_idx
+                if any(t in ["int64", "float64", "object", "datetime64"] for t in data_types):  # Types variés
+                    try:
+                        response = client.chat.completions.create(
+                            model="gpt-4",
+                            messages=[{"role": "user", "content": f"Voici un extrait des lignes autour de la ligne {i} d'un fichier Excel :\n{df.iloc[max(0, i-2):i+3].to_string(index=True)}\nLa ligne {i} a été détectée comme en-tête basée sur des règles (au moins {threshold} colonnes non vides suivies de données). Confirme si c'est correct en vérifiant si elle contient des titres de colonnes cohérents suivis de données. Réponds 'oui' ou 'non'."}],
+                            temperature=0
+                        )
+                        logger.info(f"Validation ChatGPT pour ligne {i} : {response.choices[0].message.content}")
+                        if "oui" in response.choices[0].message.content.lower():
+                            logger.info(f"En-tête confirmé à la ligne {i} par validation ChatGPT")
+                            return i
+                        else:
+                            logger.warning(f"Validation ChatGPT échouée pour ligne {i}")
+                    except openai.RateLimitError as e:
+                        logger.error(f"Erreur de limite de taux ChatGPT : {e}. Passage à la validation statistique.")
+                        break
+    # Fallback statistique si ChatGPT échoue ou n'est pas utilisé
+    logger.info("Passage à la détection statistique en raison de l'échec ou absence de ChatGPT")
+    for i in range(min(max_rows, len(df))):
+        row = df.iloc[i]
+        non_null_count = row.notna().sum()
+        if non_null_count >= threshold and i + 1 < len(df):
+            next_row = df.iloc[i + 1]
+            if next_row.notna().sum() > 1 and any(pd.to_numeric(cell, errors='coerce') is not pd.NaT or isinstance(cell, str) for cell in next_row if pd.notna(cell)):
+                logger.info(f"En-tête détecté à la ligne {i} par détection statistique")
+                return i
+    # Fallback final à ChatGPT avec extrait réduit
+    logger.info("Passage au fallback ChatGPT avec extrait réduit")
+    try:
+        header_row_idx = gpt_detect_header_row(df, max_rows=15)
+        if header_row_idx >= 0:
+            logger.info(f"En-tête détecté à la ligne {header_row_idx} par fallback ChatGPT")
+            return header_row_idx
+    except openai.RateLimitError as e:
+        logger.error(f"Erreur de limite de taux ChatGPT dans fallback : {e}. Utilisation de 0.")
     logger.warning(f"Aucun en-tête valide détecté dans les {max_rows} premières lignes, utilisation de la ligne 0.")
     return 0
 
-def gpt_detect_header_row(df, max_rows=20):
+def gpt_detect_header_row(df, max_rows=15):
     logger.info(f"Début de la détection d'en-tête par ChatGPT sur {min(max_rows, len(df))} lignes")
     excerpt = df.head(min(max_rows, len(df))).to_string(index=True)
     logger.debug(f"Extrait envoyé à ChatGPT : \n{excerpt}")
@@ -139,17 +156,16 @@ def gpt_detect_header_row(df, max_rows=20):
         f"Voici un extrait des premières lignes d'un fichier Excel (index de ligne inclus) :\n"
         f"{excerpt}\n"
         "Identifie la ligne qui contient les en-têtes du tableau. Les en-têtes sont généralement la première ligne avec des titres de colonnes cohérents "
-        "(par exemple, 'designation', 'unit', 'pu', 'lot' ou des termes similaires) suivie de données cohérentes sur les lignes suivantes. "
-        "Ignore les lignes avec des titres généraux ou des descriptions (comme 'Bibliothèque de prix'). "
-        "Réponds uniquement avec le numéro de la ligne (index basé sur 0) où se trouve l'en-tête, par exemple : 0, 1, 2, etc."
+        "suivie de données cohérentes (textes, nombres, etc.). Ignore les lignes avec des titres généraux ou des descriptions. "
+        "Réponds uniquement avec le numéro de la ligne (index basé sur 0)."
     )
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0
-    )
-    logger.info(f"Réponse brute de ChatGPT : {response.choices[0].message.content}")
     try:
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0
+        )
+        logger.info(f"Réponse brute de ChatGPT : {response.choices[0].message.content}")
         header_row_idx = int(response.choices[0].message.content.strip())
         if 0 <= header_row_idx < min(max_rows, len(df)):
             logger.info(f"En-tête détecté à la ligne {header_row_idx} par ChatGPT")
@@ -157,6 +173,9 @@ def gpt_detect_header_row(df, max_rows=20):
         else:
             logger.warning(f"Indice d'en-tête {header_row_idx} invalide, utilisation de 0.")
             return 0
+    except openai.RateLimitError as e:
+        logger.error(f"Erreur de limite de taux ChatGPT : {e}. Retour à 0.")
+        return 0
     except (ValueError, IndexError) as e:
         logger.error(f"Erreur parsing réponse ChatGPT pour en-tête : {e}. Réponse brute : {response.choices[0].message.content}")
         return 0
@@ -182,7 +201,7 @@ def extract_data_from_excel(file_bytes):
     try:
         logger.info(f"Lecture du fichier avec en-tête à la ligne {header_row_idx}...")
         df = pd.read_excel(io.BytesIO(file_bytes), header=header_row_idx)
-        df.columns = [str(col).lower() for col in df.columns]  # Forcer les en-têtes en minuscules
+        df.columns = [str(col).lower() for col in df.columns]
         logger.info(f"Colonnes détectées : {list(df.columns)}")
     except Exception as e:
         logger.error(f"Erreur lors de la lecture avec en-tête : {e}")
