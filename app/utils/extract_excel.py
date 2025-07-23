@@ -234,9 +234,8 @@ def extract_data_from_excel(file_bytes, columns_map=None):
         logger.error(f"Erreur lors de la lecture avec en-tête : {e}")
         return []
 
-    # Use columns_map if provided, else fallback to auto mapping
+    # Utiliser uniquement columns_map si fourni
     if columns_map and isinstance(columns_map, dict):
-        # columns_map: {column_name: expected_field}
         reverse_map = {v: k for k, v in columns_map.items() if v in EXPECTED_FIELDS and k in original_columns}
         logger.info(f"Reverse map fourni par l'utilisateur : {reverse_map}")
     else:
@@ -263,6 +262,9 @@ def extract_data_from_excel(file_bytes, columns_map=None):
                 record[field] = float(value) if cleaned_value.isdigit() else str(value)
             else:
                 record[field] = str(value)
+        # Ne pas inclure la ligne si le champ 'designation' est vide
+        if not record.get("designation"):
+            continue
         # Skip row if both 'unit' and 'pu' are empty
         if not record.get("unit") and not record.get("pu"):
             continue
