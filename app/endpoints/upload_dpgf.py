@@ -4,7 +4,7 @@ import logging
 from app.utils.extract_pdf import extract_text_from_pdf
 from app.utils.extract_excel import extract_data_from_excel
 from app.utils.extract_word import extract_text_from_word
-from app.vector_store.weaviate_client import store_bip_articles, get_model, delete_dpgf_articles
+from app.vector_store.weaviate_client import store_dpgf_articles, get_model, delete_dpgf_articles
 from sentence_transformers import SentenceTransformer
 # from app.utils.column_mapping import auto_map_fields
 import json
@@ -62,7 +62,7 @@ async def upload_dpgf(file: UploadFile = File(...), user_id: str = Form(...), co
         vectorized_articles.append(vectorized_article)
 
     # Store in Weaviate
-    store_bip_articles(vectorized_articles, user_id)
+    store_dpgf_articles(vectorized_articles, user_id)
     logger.info(f"DPGF uploaded and stored for user_id: {user_id} with {len(articles)} articles")
 
     # Return response
