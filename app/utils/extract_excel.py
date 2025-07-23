@@ -216,7 +216,7 @@ def gpt_detect_header_row(df, max_rows=15):
         logger.error(f"Erreur parsing réponse ChatGPT pour en-tête : {e}. Réponse brute : {response.choices[0].message.content}")
         return 0
 
-def extract_data_from_excel(file_bytes):
+def extract_data_from_excel(file_bytes, columns_map=None):
     logger.info("Début de l'extraction des données du fichier Excel")
     try:
         logger.info("Lecture brute du fichier Excel sans header...")
@@ -226,64 +226,25 @@ def extract_data_from_excel(file_bytes):
         logger.error(f"Erreur lors de la lecture brute du fichier Excel : {e}")
         return []
 
-    max_header_row_attempts = 5
     header_row_idx = find_header_row(df_raw)
-    tried_rows = set()
-    mapping = {}
-    for attempt in range(max_header_row_attempts):
-        tried_rows.add(header_row_idx)
-        try:
-            logger.info(f"Lecture du fichier avec en-tête à la ligne {header_row_idx} (tentative {attempt+1})...")
-            df = pd.read_excel(io.BytesIO(file_bytes), header=header_row_idx)
-            df.columns = [str(col).lower() for col in df.columns]
-            logger.info(f"Colonnes détectées : {list(df.columns)}")
-        except Exception as e:
-            logger.error(f"Erreur lors de la lecture avec en-tête : {e}")
-            return []
+    try:
+        df = pd.read_excel(io.BytesIO(file_bytes), header=header_row_idx)
+        original_columns = [str(col) for col in df.columns]
+    except Exception as e:
+        logger.error(f"Erreur lors de la lecture avec en-tête : {e}")
+        return []
 
-        try:
-            logger.info("Début du mappage des colonnes...")
-            mapping = infer_field_mapping(list(df.columns))
-            logger.info(f"Résultat du mappage initial : {mapping}")
-            if all(k in mapping and mapping[k] is not None for k in EXPECTED_FIELDS):
-                logger.info("Mappage initial valide, utilisation directe.")
-            else:
-                logger.info("Passage au mappage GPT car mappage initial incomplet")
-                mapping = gpt_map_columns(list(df.columns))
-            logger.info(f"Mapping final : {mapping}")
-            if mapping and any(mapping.get(k) for k in EXPECTED_FIELDS):
-                break
-            else:
-                logger.warning("Aucun mappage valide trouvé, tentative avec la ligne suivante comme en-tête.")
-                header_row_idx += 1
-                if header_row_idx in tried_rows or header_row_idx >= len(df_raw):
-                    break
-        except Exception as e:
-            logger.error(f"Erreur lors du mappage : {e}")
-            return []
+    # Use columns_map if provided, else fallback to auto mapping
+    if columns_map and isinstance(columns_map, dict):
+        # columns_map: {column_name: expected_field}
+        reverse_map = {v: k for k, v in columns_map.items() if v in EXPECTED_FIELDS and k in original_columns}
+        logger.info(f"Reverse map fourni par l'utilisateur : {reverse_map}")
     else:
-        # As a last resort, try row 0 as header if not already tried
-        if 0 not in tried_rows:
-            try:
-                logger.info("Tentative finale avec la première ligne (0) comme en-tête...")
-                df = pd.read_excel(io.BytesIO(file_bytes), header=0)
-                df.columns = [str(col).lower() for col in df.columns]
-                mapping = infer_field_mapping(list(df.columns))
-                if not (mapping and any(mapping.get(k) for k in EXPECTED_FIELDS)):
-                    mapping = gpt_map_columns(list(df.columns))
-                if not (mapping and any(mapping.get(k) for k in EXPECTED_FIELDS)):
-                    logger.error("Aucun mappage valide trouvé même avec la première ligne comme en-tête.")
-                    return []
-            except Exception as e:
-                logger.error(f"Erreur lors de la tentative finale avec la première ligne comme en-tête : {e}")
-                return []
-        else:
-            logger.error("Aucun mappage valide trouvé après plusieurs tentatives, extraction impossible.")
-            return []
-
-    # Inverser le mappage pour mapper les colonnes aux champs attendus
-    reverse_map = {mapping.get(k, k): k for k in EXPECTED_FIELDS if mapping.get(k) is not None}
-    logger.info(f"Reverse map utilisé : {reverse_map}")
+        mapping = infer_field_mapping([col.lower() for col in original_columns])
+        if not (mapping and any(mapping.get(k) for k in EXPECTED_FIELDS)):
+            mapping = gpt_map_columns([col.lower() for col in original_columns])
+        reverse_map = {mapping.get(k, k): k for k in EXPECTED_FIELDS if mapping.get(k) is not None}
+        logger.info(f"Reverse map utilisé : {reverse_map}")
 
     if not reverse_map:
         logger.error("Aucun champ attendu mappé, vérifiez les en-têtes ou les synonymes.")
