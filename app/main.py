@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.endpoints import upload_bip, upload_dpgf, analyze, export, bip_column_extract
+from app.endpoints import upload_bip, upload_dpgf, bip_column_extract, dpgf_column_extract
 import os
 import uvicorn
 import logging
@@ -17,9 +17,8 @@ app.add_middleware(
 
 app.include_router(upload_bip.router)
 app.include_router(upload_dpgf.router)
-app.include_router(analyze.router)
-app.include_router(export.router)
 app.include_router(bip_column_extract.router)
+app.include_router(dpgf_column_extract.router)
 
 @app.get("/")
 def root():
