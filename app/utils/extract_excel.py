@@ -315,14 +315,13 @@ def extract_data_from_excel(file_bytes):
 
     return records
 
-
 def extract_columns_and_reverse_map(file_bytes):
     logger.info("Début de l'extraction des colonnes pour mapping manuel")
     try:
         df_raw = pd.read_excel(io.BytesIO(file_bytes), header=None)
     except Exception as e:
         logger.error(f"Erreur lors de la lecture brute du fichier Excel : {e}")
-        return {"columns": [], "reverse_map": {}}
+        return {}
 
     header_row_idx = find_header_row(df_raw)
     try:
@@ -330,14 +329,24 @@ def extract_columns_and_reverse_map(file_bytes):
         df.columns = [str(col).lower() for col in df.columns]
     except Exception as e:
         logger.error(f"Erreur lors de la lecture avec en-tête : {e}")
-        return {"columns": [], "reverse_map": {}}
+        return {}
 
     mapping = infer_field_mapping(list(df.columns))
     if not (mapping and any(mapping.get(k) for k in EXPECTED_FIELDS)):
         mapping = gpt_map_columns(list(df.columns))
 
-    reverse_map = {mapping.get(k, k): k for k in EXPECTED_FIELDS if mapping.get(k) is not None}
-    logger.info(f"Colonnes extraites : {list(df.columns)}")
-    logger.info(f"Reverse map proposé : {reverse_map}")
+    # Build result: mapped columns get their mapped value, others get ""
+    result = {}
+    for col in df.columns:
+        mapped_value = None
+        # Try to find mapping for this column (case insensitive)
+        for k, v in mapping.items():
+            if str(k).lower() == str(col).lower():
+                mapped_value = v if v in EXPECTED_FIELDS else ""
+                break
+        if mapped_value is None:
+            mapped_value = ""
+        result[col] = mapped_value
 
-    return reverse_map
+    logger.info(f"JSON mapping manuel proposé : {result}")
+    return result
