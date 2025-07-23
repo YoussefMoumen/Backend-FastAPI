@@ -36,8 +36,22 @@ def store_bip_articles(articles, user_id):
     vector_config=Configure.Vectors.self_provided()
 )
 
-# Store articles with precomputed vectors
-    bip_collection = client.collections.get("BipArticle")
+def store_dpgf_articles(articles, user_id):
+    # Create schema if it doesn't exist
+    if not client.collections.exists("DpgfArticle"):
+        client.collections.create(
+            name="DpgfArticle",
+            properties=[
+                Property(name="designation", data_type=DataType.TEXT),
+                Property(name="unit", data_type=DataType.TEXT),
+                Property(name="pu", data_type=DataType.NUMBER),
+                Property(name="lot", data_type=DataType.TEXT),
+                Property(name="user_id", data_type=DataType.TEXT),
+            ],
+            vector_config=Configure.Vectors.self_provided()
+        )
+
+    dpgf_collection = client.collections.get("DpgfArticle")
     for article in articles:
         pu_value = article.get("pu", 0.0)
         try:
@@ -52,7 +66,7 @@ def store_bip_articles(articles, user_id):
             "lot": article.get("lot", ""),
             "user_id": user_id
         }
-        bip_collection.data.insert(
+        dpgf_collection.data.insert(
             properties,
             vector=article["vector"]
         )
