@@ -14,11 +14,17 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 @router.post("/upload_bip")
-async def upload_bip(file: UploadFile = File(...), user_id: str = Form(...)):
+async def upload_bip(file: UploadFile = File(...), user_id: str = Form(...), columns_map: str = Form(None)):
     content = await file.read()
     articles = []
     if file.filename.endswith((".xlsx", ".xls", ".XLSX", ".XLS")):
-        articles = extract_data_from_excel(content)
+        columns_dict = None
+        if columns_map:
+            try:
+                columns_dict = json.loads(columns_map)
+            except Exception:
+                raise HTTPException(status_code=400, detail="columns_map JSON invalide")
+        articles = extract_data_from_excel(content, columns_dict)
     elif file.filename.endswith((".pdf", ".PDF")):
         articles = extract_text_from_pdf(content)  # Adjust to return structured data
     elif file.filename.endswith((".docx", ".DOCX", ".doc", ".DOC")):
