@@ -7,6 +7,7 @@ from app.utils.extract_word import extract_text_from_word
 from app.vector_store.weaviate_client import store_bip_articles, get_model, delete_bip_articles
 from sentence_transformers import SentenceTransformer
 # from app.utils.column_mapping import auto_map_fields
+import json
 
 router = APIRouter()
 
@@ -20,9 +21,11 @@ async def upload_bip(file: UploadFile = File(...), user_id: str = Form(...), col
     if file.filename.endswith((".xlsx", ".xls", ".XLSX", ".XLS")):
         columns_dict = None
         if columns_map:
+            logger.info(f"columns_map reçu: {columns_map}")
             try:
                 columns_dict = json.loads(columns_map)
-            except Exception:
+            except Exception as e:
+                logger.error(f"Erreur parsing columns_map: {e}")
                 raise HTTPException(status_code=400, detail="columns_map JSON invalide")
         articles = extract_data_from_excel(content, columns_dict)
     elif file.filename.endswith((".pdf", ".PDF")):
