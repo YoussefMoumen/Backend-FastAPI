@@ -314,3 +314,33 @@ def extract_data_from_excel(file_bytes):
         logger.warning("Aucune donnée extraite du fichier Excel.")
 
     return records
+
+
+def extract_columns_and_reverse_map(file_bytes):
+    logger.info("Début de l'extraction des colonnes pour mapping manuel")
+    try:
+        df_raw = pd.read_excel(io.BytesIO(file_bytes), header=None)
+    except Exception as e:
+        logger.error(f"Erreur lors de la lecture brute du fichier Excel : {e}")
+        return {"columns": [], "reverse_map": {}}
+
+    header_row_idx = find_header_row(df_raw)
+    try:
+        df = pd.read_excel(io.BytesIO(file_bytes), header=header_row_idx)
+        df.columns = [str(col).lower() for col in df.columns]
+    except Exception as e:
+        logger.error(f"Erreur lors de la lecture avec en-tête : {e}")
+        return {"columns": [], "reverse_map": {}}
+
+    mapping = infer_field_mapping(list(df.columns))
+    if not (mapping and any(mapping.get(k) for k in EXPECTED_FIELDS)):
+        mapping = gpt_map_columns(list(df.columns))
+
+    reverse_map = {mapping.get(k, k): k for k in EXPECTED_FIELDS if mapping.get(k) is not None}
+    logger.info(f"Colonnes extraites : {list(df.columns)}")
+    logger.info(f"Reverse map proposé : {reverse_map}")
+
+    return {
+        "columns": list(df.columns),
+        "reverse_map": reverse_map
+    }
