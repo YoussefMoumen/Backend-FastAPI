@@ -340,7 +340,4 @@ def extract_columns_and_reverse_map(file_bytes):
     logger.info(f"Colonnes extraites : {list(df.columns)}")
     logger.info(f"Reverse map proposé : {reverse_map}")
 
-    return {
-        "columns": list(df.columns),
-        "reverse_map": reverse_map
-    }
+    return reverse_map
