@@ -326,27 +326,24 @@ def extract_columns_and_reverse_map(file_bytes):
     header_row_idx = find_header_row(df_raw)
     try:
         df = pd.read_excel(io.BytesIO(file_bytes), header=header_row_idx)
-        df.columns = [str(col).lower() for col in df.columns]
+        original_columns = [str(col) for col in df.columns]  # Keep original case
     except Exception as e:
         logger.error(f"Erreur lors de la lecture avec en-tête : {e}")
         return {}
 
-    mapping = infer_field_mapping(list(df.columns))
+    mapping = infer_field_mapping([col.lower() for col in original_columns])
     if not (mapping and any(mapping.get(k) for k in EXPECTED_FIELDS)):
-        mapping = gpt_map_columns(list(df.columns))
+        mapping = gpt_map_columns([col.lower() for col in original_columns])
 
-    # Build result: mapped columns get their mapped value, others get ""
+    # Build result: for each column, if it matches a mapped value, show the field, else empty
     result = {}
-    for col in df.columns:
-        mapped_value = None
-        # Try to find mapping for this column (case insensitive)
-        for k, v in mapping.items():
-            if str(k).lower() == str(col).lower():
-                mapped_value = v if v in EXPECTED_FIELDS else ""
+    for col in original_columns:
+        mapped_field = ""
+        for field, mapped_col in mapping.items():
+            if mapped_col and mapped_col.lower() == col.lower():
+                mapped_field = field
                 break
-        if mapped_value is None:
-            mapped_value = ""
-        result[col] = mapped_value
+        result[col] = mapped_field
 
     logger.info(f"JSON mapping manuel proposé : {result}")
     return result
