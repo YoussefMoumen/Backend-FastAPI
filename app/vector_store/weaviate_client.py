@@ -77,3 +77,9 @@ def delete_bip_articles(user_id):
     collection.data.delete_many(
         where=Filter.by_property("user_id").equal(user_id)
     )
+    
+def delete_dpgf_articles(user_id):
+    collection = client.collections.get("DpgfArticle")
+    collection.data.delete_many(
+        where=Filter.by_property("user_id").equal(user_id)
+    )
