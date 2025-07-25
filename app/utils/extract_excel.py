@@ -9,6 +9,7 @@ import os
 import logging
 from typing import List, Dict
 import time
+from app.vector_store.weaviate_client import get_model, search_documents
 
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -21,6 +22,7 @@ FIELD_SYNONYMS = {
     "unit": [s.lower() for s in ["unit", "unité", "u", "unite", "m²", "m3", "u", "unité du détail"]],
     "pu": [s.lower() for s in ["pu", "prix unitaire", "prix", "unit price", "p.u.", "cout", "coût", "prix ht", "montant", "prix de revient", "prix de revient du détail"]],
     "lot": [s.lower() for s in ["lot", "section", "groupe", "group", "type", "catégorie", "phase", "gros œuvre", "gros oeuvres", "catégorie"]],
+    # "quantity": [s.lower() for s in ["quantité", "quantite", "qte", "qté", "nombre", "volume", "qty", "quantity", "quantité totale"]]
 }
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -310,3 +312,99 @@ def extract_columns_and_reverse_map(file_bytes):
 
     logger.info(f"JSON mapping manuel proposé : {result}")
     return result
+
+def dpgf_extract_data_from_excel(file_bytes, columns_map=None, user_id=None):
+    logger.info("Début de l'extraction des données du fichier Excel")
+    try:
+        # Charger le fichier Excel une seule fois sans header
+        df_raw = pd.read_excel(io.BytesIO(file_bytes), header=None)
+        logger.info(f"Premières lignes brutes lues avec succès : \n{df_raw.head(5).to_string()}")
+    except Exception as e:
+        logger.error(f"Erreur lors de la lecture brute du fichier Excel : {e}")
+        return []
+
+    # Détecter l'index de l'en-tête
+    header_row_idx = find_header_row(df_raw)
+    # Appliquer l'en-tête directement sur le DataFrame brut
+    df_raw.columns = df_raw.iloc[header_row_idx]
+    df = df_raw.drop(range(header_row_idx + 1)).reset_index(drop=True)
+    original_columns = [str(col) for col in df.columns]
+
+    # Utiliser uniquement columns_map si fourni
+    if columns_map and isinstance(columns_map, dict):
+        reverse_map = {v: k for k, v in columns_map.items() if v in EXPECTED_FIELDS and k in original_columns}
+        logger.info(f"Reverse map fourni par l'utilisateur : {reverse_map}")
+    else:
+        mapping = infer_field_mapping([col.lower() for col in original_columns])
+        if not (mapping and any(mapping.get(k) for k in EXPECTED_FIELDS)):
+            mapping = gpt_map_columns([col.lower() for col in original_columns])
+        reverse_map = {mapping.get(k, k): k for k in EXPECTED_FIELDS if mapping.get(k) is not None}
+        logger.info(f"Reverse map utilisé : {reverse_map}")
+
+    if not reverse_map:
+        logger.error("Aucun champ attendu mappé, vérifiez les en-têtes ou les synonymes.")
+        return []
+
+    designation_cache = {}
+    records = []
+    for idx, row in df.iterrows():
+        record = {}
+        for field in EXPECTED_FIELDS:
+            col = reverse_map.get(field)
+            value = row[col] if col and col in row and pd.notna(row[col]) else ""
+            if field == "pu" and isinstance(value, (int, float)):
+                record[field] = float(value)
+            elif field == "pu" and isinstance(value, str):
+                cleaned_value = value.replace('.', '').replace(',', '').replace('-', '')
+                record[field] = float(value) if cleaned_value.isdigit() else str(value)
+            else:
+                record[field] = str(value)
+        # Ajout du champ quantity si présent
+        quantity_col = reverse_map.get("quantity") if "quantity" in reverse_map else None
+        if quantity_col and quantity_col in row and pd.notna(row[quantity_col]):
+            try:
+                record["quantity"] = float(row[quantity_col])
+            except Exception:
+                record["quantity"] = row[quantity_col]
+        else:
+            record["quantity"] = 1.0  # Valeur par défaut si non présente
+
+        # Ne pas inclure la ligne si le champ 'designation' est vide
+        if not record.get("designation"):
+            continue
+        # Skip row if both 'unit' and 'pu' are empty
+        if not record.get("unit") and not record.get("pu"):
+            continue
+
+        # Recherche vectorielle dans BipArticle avec cache
+        designation = record.get("designation")
+        bip_match = None
+        if designation:
+            if designation in designation_cache:
+                bip_match = designation_cache[designation]
+            else:
+                bip_match = search_documents(user_id or "", designation)
+                designation_cache[designation] = bip_match
+        record["bip_match"] = bip_match if bip_match else None
+
+        # Calcul du coût total si bip_match trouvé et quantity présente
+        pu_bip = bip_match.get("pu") if bip_match and "pu" in bip_match else None
+        try:
+            pu_bip = float(pu_bip) if pu_bip is not None else 0.0
+        except Exception:
+            pu_bip = 0.0
+        try:
+            quantity = float(record.get("quantity", 1.0))
+        except Exception:
+            quantity = 1.0
+        record["cout_total"] = pu_bip * quantity
+
+        records.append(record)
+
+    logger.info(f"Nombre de lignes extraites : {len(records)}")
+    if records:
+        logger.info(f"Exemple de lignes extraites : {records[:3]}")
+    else:
+        logger.warning("Aucune donnée extraite du fichier Excel.")
+
+    return records

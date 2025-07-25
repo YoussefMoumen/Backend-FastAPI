@@ -2,7 +2,7 @@ from fastapi import APIRouter, File, UploadFile, Form, HTTPException
 from fastapi.responses import JSONResponse
 import logging
 from app.utils.extract_pdf import extract_text_from_pdf
-from app.utils.extract_excel import extract_data_from_excel
+from app.utils.extract_excel import dpgf_extract_data_from_excel
 from app.utils.extract_word import extract_text_from_word
 from app.vector_store.weaviate_client import store_dpgf_articles, get_model, delete_dpgf_articles
 from sentence_transformers import SentenceTransformer
@@ -27,7 +27,7 @@ async def upload_dpgf(file: UploadFile = File(...), user_id: str = Form(...), co
             except Exception as e:
                 logger.error(f"Erreur parsing columns_map: {e}")
                 raise HTTPException(status_code=400, detail="columns_map JSON invalide")
-        articles = extract_data_from_excel(content, columns_dict)
+        articles = dpgf_extract_data_from_excel(content, columns_dict)
     elif file.filename.endswith((".pdf", ".PDF")):
         articles = extract_text_from_pdf(content)  # Adjust to return structured data
     elif file.filename.endswith((".docx", ".DOCX", ".doc", ".DOC")):
