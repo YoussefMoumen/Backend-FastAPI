@@ -63,6 +63,7 @@ def store_bip_articles(articles, user_id):
             properties,
             vector=article["vector"]
         )
+        
 
 def store_dpgf_articles(articles, user_id):
     # Create schema if it doesn't exist
