@@ -38,6 +38,28 @@ def store_bip_articles(articles, user_id):
     ],
     vector_config=Configure.Vectors.self_provided()
 )
+       bip_collection = client.collections.get("BipArticle")
+    for article in articles:
+        # Get the pu value from the article and convert it to a float
+        pu_value = article.get("pu", 0.0)
+        try:
+            pu_value = float(pu_value)
+        except (ValueError, TypeError):
+            pu_value = 0.0
+
+        # Create a dictionary of properties to insert into the collection
+        properties = {
+            "designation": article.get("designation", ""),
+            "unit": article.get("unit", ""),
+            "pu": article.get("pu", ""),
+            "lot": article.get("lot", ""),
+            "user_id": user_id
+        }
+        # Insert the properties and vector into the collection
+        bip_collection.data.insert(
+            properties,
+            vector=article["vector"]
+        )
 
 def store_dpgf_articles(articles, user_id):
     # Create schema if it doesn't exist

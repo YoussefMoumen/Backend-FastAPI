@@ -65,6 +65,9 @@ async def upload_dpgf(file: UploadFile = File(...), user_id: str = Form(...), co
     store_dpgf_articles(vectorized_articles, user_id)
     logger.info(f"DPGF uploaded and stored for user_id: {user_id} with {len(articles)} articles")
 
+
+    logger.info(f"DPGF Articles brute: {articles}")
+
     # Return response
     return JSONResponse(content={
         "message": f"{len(articles)} articles indexés pour l'utilisateur {user_id}",
