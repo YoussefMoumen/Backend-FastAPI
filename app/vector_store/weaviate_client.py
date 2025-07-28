@@ -38,7 +38,10 @@ def store_bip_articles(articles, user_id):
     ],
     vector_config=Configure.Vectors.self_provided()
 )
-       bip_collection = client.collections.get("BipArticle")
+
+    # Récupérer la collection dans tous les cas
+    bip_collection = client.collections.get("BipArticle")
+
     for article in articles:
         # Get the pu value from the article and convert it to a float
         pu_value = article.get("pu", 0.0)
