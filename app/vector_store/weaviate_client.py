@@ -53,12 +53,14 @@ def store_dpgf_articles(articles, user_id):
 
     dpgf_collection = client.collections.get("DpgfArticle")
     for article in articles:
+        # Get the pu value from the article and convert it to a float
         pu_value = article.get("pu", 0.0)
         try:
             pu_value = float(pu_value)
         except (ValueError, TypeError):
             pu_value = 0.0
 
+        # Create a dictionary of properties to insert into the collection
         properties = {
             "designation": article.get("designation", ""),
             "unit": article.get("unit", ""),
@@ -66,24 +68,29 @@ def store_dpgf_articles(articles, user_id):
             "lot": article.get("lot", ""),
             "user_id": user_id
         }
+        # Insert the properties and vector into the collection
         dpgf_collection.data.insert(
             properties,
             vector=article["vector"]
         )
 
+# Define a function to search documents based on user_id and query
 def search_documents(user_id, query):
+    # Get the model
     model = get_model()
+    # Encode the query
     query_vec = model.encode(query).tolist()
-    response = client.query.get("BipArticle", ["designation", "unit", "pu", "lot"]).with_where({
-        "path": ["user_id"],
-        "operator": "Equal",
-        "valueText": user_id
-    }).with_near_vector({
-        "vector": query_vec
-    }).with_limit(1).do()
-
-    hits = response["data"]["Get"].get("BipArticle", [])
-    return hits[0] if hits else None
+    # Get the BipArticle collection
+    bip_collection = client.collections.get("BipArticle")
+    # Query the collection with the encoded query and user_id
+    results = bip_collection.query.near_vector(
+        vector=query_vec,
+        where=Filter.by_property("user_id").equal(user_id),
+        limit=1,
+        return_properties=["designation", "unit", "pu", "lot"]
+    )
+    # Return the first hit if there are any, otherwise return None
+    return results.objects[0].properties if results.objects else None
 
 
 def delete_bip_articles(user_id):
