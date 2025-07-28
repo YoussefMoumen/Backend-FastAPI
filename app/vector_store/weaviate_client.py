@@ -85,7 +85,7 @@ def search_documents(user_id, query):
     # Query the collection with the encoded query and user_id
     results = bip_collection.query.near_vector(
         query_vec,
-        where=Filter.by_property("user_id").equal(user_id),
+        filters=Filter.by_property("user_id").equal(user_id),
         limit=1,
         return_properties=["designation", "unit", "pu", "lot"]
     )
