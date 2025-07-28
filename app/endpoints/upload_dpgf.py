@@ -27,7 +27,7 @@ async def upload_dpgf(file: UploadFile = File(...), user_id: str = Form(...), co
             except Exception as e:
                 logger.error(f"Erreur parsing columns_map: {e}")
                 raise HTTPException(status_code=400, detail="columns_map JSON invalide")
-        articles = dpgf_extract_data_from_excel(content, columns_dict)
+        articles = dpgf_extract_data_from_excel(content, columns_dict, user_id)
     elif file.filename.endswith((".pdf", ".PDF")):
         articles = extract_text_from_pdf(content)  # Adjust to return structured data
     elif file.filename.endswith((".docx", ".DOCX", ".doc", ".DOC")):
