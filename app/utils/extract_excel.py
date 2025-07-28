@@ -379,11 +379,11 @@ def dpgf_extract_data_from_excel(file_bytes, columns_map=None, user_id=None):
         # Recherche vectorielle dans BipArticle avec cache
         designation = record.get("designation")
         bip_match = None
-        if designation:
+        if designation and designation.strip():
             if designation in designation_cache:
                 bip_match = designation_cache[designation]
             else:
-                bip_match = search_documents(user_id or "", designation)
+                bip_match = search_documents(user_id, designation)
                 designation_cache[designation] = bip_match
         record["bip_match"] = bip_match if bip_match else None
 
