@@ -54,7 +54,7 @@ def store_bip_articles(articles, user_id):
         properties = {
             "designation": article.get("designation", ""),
             "unit": article.get("unit", ""),
-            "pu": article.get("pu", ""),
+            "pu": pu_value,  # Utiliser la valeur déjà convertie en float
             "lot": article.get("lot", ""),
             "user_id": user_id
         }
@@ -63,7 +63,7 @@ def store_bip_articles(articles, user_id):
             properties,
             vector=article["vector"]
         )
-        
+
 
 def store_dpgf_articles(articles, user_id):
     # Create schema if it doesn't exist
