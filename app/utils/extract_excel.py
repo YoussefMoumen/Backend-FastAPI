@@ -14,7 +14,7 @@ from app.vector_store.weaviate_client import get_model, search_documents
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Define the expected fields
-EXPECTED_FIELDS = ["designation", "unit", "pu", "lot"]
+EXPECTED_FIELDS = ["designation", "unit", "pu", "quantity", "lot"]
 
 # Convertir tous les synonymes en minuscules pour insensible à la casse
 FIELD_SYNONYMS = {
