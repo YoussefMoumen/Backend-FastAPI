@@ -20,9 +20,9 @@ EXPECTED_FIELDS = ["designation", "unit", "pu", "lot"]
 FIELD_SYNONYMS = {
     "designation": [s.lower() for s in ["designation", "désignation", "article", "libellé", "description", "item", "type", "description ouvrage"]],
     "unit": [s.lower() for s in ["unit", "unité", "u", "unite", "m²", "m3", "u", "unité du détail"]],
-    "pu": [s.lower() for s in ["pu", "prix unitaire", "prix", "unit price", "p.u.", "cout", "coût", "prix ht", "montant", "prix de revient", "prix de revient du détail"]],
-    "lot": [s.lower() for s in ["lot", "section", "groupe", "group", "type", "catégorie", "phase", "gros œuvre", "gros oeuvres", "catégorie"]],
-    # "quantity": [s.lower() for s in ["quantité", "quantite", "qte", "qté", "nombre", "volume", "qty", "quantity", "quantité totale"]]
+    "pu": [s.lower() for s in ["pu", "prix unitaire", "prix", "unit price", "p.u.", "p.u.","p.u. ht", "cout", "coût", "prix ht", "montant", "prix de revient", "prix de revient du détail"]],
+    "lot": [s.lower() for s in ["lot", "section", "groupe", "group", "type", "catégorie", "phase", "gros œuvre", "gros oeuvres", "catégorie", "corps d'état"]],
+    "quantity": [s.lower() for s in ["quantité", "quantite", "qte", "qté", "nombre", "volume", "qty", "quantity", "quantité totale"]]
 }
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -59,6 +59,7 @@ def gpt_map_columns(column_names: List[str]) -> Dict[str, str]:
         "unit": [s.lower() for s in ["unit", "unité", "u", "unite", "m²", "m3", "u", "unité du détail", "unité"]],
         "pu": [s.lower() for s in ["pu", "prix unitaire", "prix", "unit price", "p.u.", "cout", "coût", "prix ht", "montant", "prix de revient", "prix de revient du détail", "prix unitaires", "prix totaux"]],
         "lot": [s.lower() for s in ["lot", "section", "groupe", "group", "type", "catégorie", "phase", "gros œuvre", "gros oeuvres", "catégorie"]],
+        "quantity": [s.lower() for s in ["quantité", "quantite", "qte", "qté", "nombre", "volume", "qty", "quantity", "quantité totale"]]
     }
     synonyms_str = "\n".join([f"{field}: {', '.join(synonyms)}" for field, synonyms in FIELD_SYNONYMS.items()])
     prompt = (
